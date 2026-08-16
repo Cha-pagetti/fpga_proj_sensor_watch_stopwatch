@@ -1,518 +1,379 @@
 `timescale 1ns / 1ps
 
-module sr04_controller (
-    input        clk,
-    input        reset,
-    input        i_start,
-    input        echo,
-    output       trigger,
-    output       o_done,
-    output       o_ready,
-    output       o_error,
-    output [8:0] distance
-);
-
-    parameter READY = 3'b000;
-    parameter START = 3'b001;
-    parameter WAIT = 3'b010;
-    parameter RECEIVE = 3'b011;
-    parameter DONE = 3'b100;
-    parameter ERROR = 3'b101;
-
-    wire w_tick_1us;
-
-    reg [2:0] c_state, n_state;
-    reg done_reg, ready_reg, error_reg;
-    reg done_next, ready_next, error_next;
-
-    assign {o_done, o_ready, o_error} = {done_reg, ready_reg, error_reg};
-
-    reg trigger_reg, trigger_next;
-
-    assign trigger = trigger_reg;
-
-    reg [$clog2(10_000)-1:0] tick_count_reg, tick_count_next;
-    reg [$clog2(60_000)-1:0] duration_count_reg, duration_count_next;
-    // 카운터로 변경 -> 57되면 distance 1cm 증가
-    reg [$clog2(58)-1:0] high_count_reg, high_count_next;
-
-    reg [9:0] distance_reg, distance_next;
-
-    assign distance = distance_reg[8:0];
-
-    tick_gen_1Mhz U_TICK_GEN_1MHZ (
-        .clk(clk),
-        .reset(reset),
-        .i_runstop(i_start),
-        .i_clear(o_done | o_error),
-        .o_tick(w_tick_1us)
-    );
-
-    ila_0 U_ILA (
-        .clk(clk),
-        .probe0(i_start),
-        .probe1(trigger),
-        .probe2(echo),
-        .probe3(c_state),
-        .probe4(high_count_reg),
-        .probe5(distance_reg),
-        .probe6(duration_count_reg)
-    );
-
-    // state reg
-    always @(posedge clk, posedge reset) begin
-        if (reset) begin
-            c_state        <= READY;
-            done_reg       <= 0;
-            ready_reg      <= 1;
-            error_reg      <= 0;
-            tick_count_reg <= 0;
-            duration_count_reg <= 0;
-            high_count_reg <= 0;
-            distance_reg   <= 0;
-            trigger_reg    <= 0;
-        end else begin
-            c_state        <= n_state;
-            done_reg       <= done_next;
-            ready_reg      <= ready_next;
-            error_reg      <= error_next;
-            tick_count_reg <= tick_count_next;
-            duration_count_reg <= duration_count_next;
-            high_count_reg <= high_count_next;
-            distance_reg   <= distance_next;
-            trigger_reg    <= trigger_next;
-        end
-    end
-
-    // next state CL
-    always @(*) begin
-        n_state         = c_state;
-        done_next       = done_reg;
-        ready_next      = ready_reg;
-        error_next      = error_reg;
-        tick_count_next = tick_count_reg;
-        duration_count_next = duration_count_reg;
-        high_count_next = high_count_reg;
-        distance_next   = distance_reg;
-        trigger_next    = trigger_reg;
-        case (c_state)
-            READY: begin
-                ready_next = 1;
-                error_next = 0;
-                done_next  = 0;
-                if (i_start) begin
-                    n_state = START;
-                    tick_count_next = 0;
-                    duration_count_next = 0;
-                    ready_next = 0;
-                    trigger_next = 1;
-                    distance_next = 0;
-                    high_count_next = 0;
-                end
-            end
-            START: begin
-                ready_next   = 0;
-                trigger_next = 1;
-                if (w_tick_1us) begin
-                    if (tick_count_reg == 11) begin
-                        n_state = WAIT;
-                        tick_count_next = 0;
-                        // duration_count_next = 0;
-                        trigger_next = 0;
-                    end else begin
-                        tick_count_next = tick_count_reg + 1;
-                    end
-                end
-            end
-            WAIT: begin
-                if (w_tick_1us) begin
-                    duration_count_next = duration_count_reg + 1;
-                    // if (duration_count_reg >= 59_999) begin
-                    //     n_state = ERROR;
-                    // end else 
-                    if (echo) begin
-                        n_state = RECEIVE;
-                    end
-                end
-            end
-            RECEIVE: begin
-                if (w_tick_1us) begin
-                    duration_count_next = duration_count_reg + 1;
-                    // if (duration_count_reg >= 59_999) begin
-                    //     n_state = ERROR;
-                    // end else 
-                    // todo: 18ms 이상 -> echo 측정 오류
-                    if (echo) begin
-                        high_count_next = high_count_reg + 1;
-                        // cm 계산하는걸 counter 형태로 변경
-                        if (high_count_reg == 57) begin
-                            high_count_next = 0;
-                            distance_next   = distance_reg + 1;
-                        end
-                    end else begin
-                        // if (distance_reg >= 400) begin
-                        //     n_state = ERROR;
-                        //     distance_next = 0;
-                        //     high_count_next = 0;
-                        //     tick_count_next = 0;
-                        //     done_next = 1;
-                        // end else begin
-                        n_state = DONE;
-                        tick_count_next = 0;
-                        // 얘때문에 WNS 마이너스 나옴 (나누기는 시간이 오래 걸림)
-                        // distance_next = high_count_reg / 58;
-                        // 얘도 마이너스 나옴... 계산 한방에 처리해서 그런듯
-                        // distance_next = high_count_reg >> 6;
-                        // high_count_next = 0;
-                        // done_next = 1;
-                        // end
-                    end
-                end
-            end
-            DONE: begin
-                done_next = 0;
-                if (w_tick_1us) begin
-                    if (tick_count_reg == 9_999) begin
-                        n_state = READY;
-                        tick_count_next = 0;
-                        if (distance_reg >= 400) begin
-                            distance_next = 0;
-                        end else begin
-                            distance_next = distance_reg;
-                        end
-                        // duration_count_next = 0;
-                        done_next = 1;
-                    end else begin
-                        tick_count_next = tick_count_reg + 1;
-                    end
-                end
-            end
-            ERROR: begin
-                done_next = 0;
-                error_next = 1;
-                // duration_count_next = 0;
-                distance_next = 0;
-                if (w_tick_1us) begin
-                    if (tick_count_reg == 9_999) begin
-                        n_state = READY;
-                        tick_count_next = 0;
-                        // duration_count_next = 0;
-                    end else begin
-                        tick_count_next = tick_count_reg + 1;
-                    end
-                end
-            end
-        endcase
-    end
-
-
-endmodule
-
-module sr04_controller_origin (
-    input        clk,
-    input        reset,
-    input        i_start,
-    input        echo,
-    output       trigger,
-    output       o_done,
-    output       o_ready,
-    output       o_error,
-    output [8:0] distance
-);
-
-    parameter READY = 3'b000;
-    parameter START = 3'b001;
-    parameter WAIT = 3'b010;
-    parameter RECEIVE = 3'b011;
-    parameter DONE = 3'b100;
-    parameter ERROR = 3'b101;
-
-    wire w_tick_1us;
-
-    reg [2:0] c_state, n_state;
-    reg done_reg, ready_reg, error_reg;
-    reg done_next, ready_next, error_next;
-
-    assign {o_done, o_ready, o_error} = {done_reg, ready_reg, error_reg};
-
-    reg trigger_reg, trigger_next;
-
-    assign trigger = trigger_reg;
-
-    reg [$clog2(10_000)-1:0] tick_count_reg, tick_count_next;
-    reg [$clog2(60_000)-1:0] duration_count_reg, duration_count_next;
-    reg [$clog2(18_000)-1:0] high_count_reg, high_count_next;
-
-    reg [8:0] distance_reg, distance_next;
-
-    assign distance = distance_reg;
-
-    tick_gen_1Mhz U_TICK_GEN_1MHZ (
-        .clk(clk),
-        .reset(reset),
-        .i_runstop(i_start),
-        .i_clear(o_done | o_error),
-        .o_tick(w_tick_1us)
-    );
-
-    ila_0 U_ILA (
-        .clk(clk),
-        .probe0(i_start),
-        .probe1(trigger),
-        .probe2(echo),
-        .probe3(c_state),
-        .probe4(high_count_reg),
-        .probe5(distance_reg),
-        .probe6(duration_count_reg)
-    );
-
-    // state reg
-    always @(posedge clk, posedge reset) begin
-        if (reset) begin
-            c_state            <= READY;
-            done_reg           <= 0;
-            ready_reg          <= 1;
-            error_reg          <= 0;
-            tick_count_reg     <= 0;
-            duration_count_reg <= 0;
-            high_count_reg     <= 0;
-            distance_reg       <= 0;
-            trigger_reg        <= 0;
-        end else begin
-            c_state            <= n_state;
-            done_reg           <= done_next;
-            ready_reg          <= ready_next;
-            error_reg          <= error_next;
-            tick_count_reg     <= tick_count_next;
-            duration_count_reg <= duration_count_next;
-            high_count_reg     <= high_count_next;
-            distance_reg       <= distance_next;
-            trigger_reg        <= trigger_next;
-        end
-    end
-
-    // next state CL
-    always @(*) begin
-        n_state             = c_state;
-        done_next           = done_reg;
-        ready_next          = ready_reg;
-        error_next          = error_reg;
-        tick_count_next     = tick_count_reg;
-        duration_count_next = duration_count_reg;
-        high_count_next     = high_count_reg;
-        distance_next       = distance_reg;
-        trigger_next        = trigger_reg;
-        case (c_state)
-            READY: begin
-                ready_next = 1;
-                error_next = 0;
-                done_next  = 0;
-                if (i_start) begin
-                    n_state = START;
-                    tick_count_next = 0;
-                    duration_count_next = 0;
-                    ready_next = 0;
-                    trigger_next = 1;
-                end
-            end
-            START: begin
-                ready_next   = 0;
-                trigger_next = 1;
-                if (w_tick_1us) begin
-                    if (tick_count_reg >= 10) begin
-                        n_state = WAIT;
-                        tick_count_next = 0;
-                        duration_count_next = 0;
-                        trigger_next = 0;
-                        high_count_next = 0;
-                    end else begin
-                        tick_count_next = tick_count_reg + 1;
-                    end
-                end
-            end
-            WAIT: begin
-                if (w_tick_1us) begin
-                    duration_count_next = duration_count_reg + 1;
-                    if (duration_count_reg >= 59_999) begin
-                        n_state = ERROR;
-                    end else if (echo == 1) begin
-                        n_state = RECEIVE;
-                    end
-                end
-            end
-            RECEIVE: begin
-                if (w_tick_1us) begin
-                    duration_count_next = duration_count_reg + 1;
-                    if (duration_count_reg >= 59_999) begin
-                        n_state = ERROR;
-                    end else if (echo == 1) begin
-                        high_count_next = high_count_reg + 1;
-                    end else begin
-                        n_state = DONE;
-                        tick_count_next = 0;
-                    end
-                end
-            end
-            DONE: begin
-                distance_next = high_count_reg / 58;
-                if (w_tick_1us) begin
-                    if (tick_count_reg == 9_999) begin
-                        n_state = READY;
-                        tick_count_next = 0;
-                        duration_count_next = 0;
-                        done_next = 1;
-                    end else begin
-                        tick_count_next = tick_count_reg + 1;
-                    end
-                end
-            end
-            ERROR: begin
-                error_next = 1;
-                duration_count_next = 0;
-                distance_next = 0;
-                n_state = READY;
-            end
-        endcase
-    end
-
-
-endmodule
-
-module sr04_controller_example (
-    input            clk,
-    input            reset,
-    input            i_start,
-    input            echo,
-    output reg       trigger,
-    output           o_done,
-    // output       o_ready,
-    // output       o_error,
-    output     [8:0] distance
+module sr04_ctrl (
+    input               clk,
+    input               reset,
+    input               start,      // start를 BTN 입력으로 받는다
+    input               echo,       // 왜 동기화가 필요할까??
+    output reg          trigger,    // 측정 시작 요청 신호
+    output reg          done,         
+    output    [8:0] distance    // 400cm 표현 -> 9비트 필요
 );
 
     wire w_tick_us;
-    reg w_run_stop, w_clear;
 
-    // fsm control unit state
+    // FSM controller (control unit)
     localparam [2:0] IDLE = 0, START = 1, WAIT = 2, COUNT = 3, DISTANCE = 4;
     reg [2:0] c_state, n_state;
+    reg run_stop;       
+    reg clear;
+    // Echo HIGH 시간을 1us 단위로 측정
+    // reg [$clog2(58*400)-1: 0] counter_reg, counter_next; // 400cm 표현 -> 1cm 당 58us 필요 -> 400 * 58 tick 필요
+    reg [$clog2(50_000)-1: 0] counter_reg, counter_next; // 400cm 표현 -> 1cm 당 58us 필요 -> 400 * 58 tick 필요
 
-    // 1cm = 58us, 최대 echo 길이 400
-    reg [$clog2(58*400)-1:0] tick_counter_reg, tick_counter_next;
+    reg echo_reg, echo_next;
+    reg [8:0] distance_reg, distance_next;
 
-    tick_us_example TICK_US (
-        .clk(clk),
-        .reset(reset),
-        .i_runstop(w_run_stop),
-        .i_clear(w_clear),
-        .o_tick(w_tick_us)
+    tick_us U_TICK_US (
+        .clk      (clk),
+        .reset    (reset),
+        .run_stop (run_stop),   
+        .clear    (clear),
+        .o_tick_us(w_tick_us)
     );
 
+    ila_0 U_ILA (
+        .clk   (clk),
+        .probe0(start),     // start
+        .probe1(trigger),   // trigger
+        .probe2(echo),      // echo
+        .probe3(c_state)    // state
+    );   
 
+    assign distance = distance_reg;
+
+    // State + SL 출력 (echo 및 counter_reg)
     always @(posedge clk, posedge reset) begin
         if (reset) begin
             c_state <= IDLE;
-            tick_counter_reg <= 0;
-        end else begin
+            counter_reg <= 0;
+            echo_reg <= 0;
+            distance_reg <= 0;
+        end
+        else begin
             c_state <= n_state;
-            tick_counter_reg <= tick_counter_next;
+            counter_reg <= counter_next;
+            echo_reg <= echo_next;
+            distance_reg <= distance_next;
         end
     end
 
-    // next, output CL
+
+
+    // Next, output (이건 조합 출력(Output))
     always @(*) begin
-        n_state = c_state;
-        tick_counter_next = tick_counter_reg;
-        w_run_stop = 1'b0;
-        w_clear = 1'b0;
-        trigger = 1'b0;
+        // Init
+        n_state  = c_state;
+        counter_next = counter_reg;
+        run_stop = 1'b0;
+        clear    = 1'b0;
+        trigger  = 1'b0;
+        done     = 1'b0;
+        echo_next= 1'b0;
+        distance_next = distance_reg;
+        // distance = 1'b0;
+        
+
         case (c_state)
             IDLE: begin
-                w_run_stop = 1'b0;
-                w_clear = 1'b1;
-                if (i_start) begin
-                    n_state = START;
-                    tick_counter_next = 0;
+                run_stop = 1'b0;
+                clear    = 1'b1;
+                done     = 1'b0;
+                // distance = 0;
+                if (start) begin            // start는 pulse 신호
+                    n_state      = START;
+                    counter_next = 0;
                 end
-            end
-            START: begin
-                w_run_stop = 1'b1;
-                w_clear = 1'b0;
-                trigger = 1'b1;
-                if (w_tick_us) begin
-                    tick_counter_next = tick_counter_reg + 1;
-                end
-                if (tick_counter_reg >= 11) begin
-                    n_state = WAIT;
-                end
-            end
-            WAIT: begin
-                // test
-                n_state = IDLE;
-                w_run_stop = 1'b1;
-                trigger = 0;
             end
 
+            // Trigger 생성해야 됨 (trigger 이후 8cycle 후 echo 신호 올 때까지 대기)
+            START: begin
+                run_stop = 1'b1;  // always 구문이니 출력은 reg // 계속 1이어야 tick 돌아감
+                clear    = 1'b0;
+                trigger  = 1'b1;
+                distance_next = 0;
+
+                if(w_tick_us) begin
+                    counter_next = counter_reg + 1;
+                end
+                if (counter_reg == 11) begin
+                    n_state = WAIT;
+                    counter_next = 0;
+                end
+            end
+
+            WAIT : begin            // 8cycle은 SR04 내부에서 일어나는 것 ctrl로 제어하는 것이 X
+                run_stop = 1'b1;
+                trigger   = 1'b0;
+
+                if (echo) begin
+                    n_state = COUNT;
+                end
+            end
+
+            COUNT: begin
+                run_stop = 1'b1;
+                if (echo) begin
+                    if(w_tick_us) begin
+                        counter_next = counter_reg + 1;
+                    end
+                end
+                else begin  // echo = 0 (LOW로 떨어질 때)
+                    n_state = DISTANCE;
+                    // 방어 로직
+                    // if (counter_reg >= 5000) begin
+                    if (counter_reg >= 20_000) begin
+
+                        distance_next = 0;
+                    end
+                    else begin
+                        distance_next = counter_reg / 58;        // 나누기 연산 -> 1cycle로 하면 Negative Slack 나올 수 있다.
+                    end
+                    counter_next = 0;
+                    trigger = 1'b0;
+                end
+            end
+
+            // 수신부 에코 쪽에 Synchronizer
+            // 다음 Trigger와 echo가 LOW 간격은 10ms 이므로 -> 1us tick으로 10_000 count
+            DISTANCE : begin
+                run_stop= 1;
+
+                if(w_tick_us) begin
+                    counter_next = counter_reg + 1;
+                    // 10ms delay = tick_us * 10_000
+                    if(counter_next == 9_999) begin 
+                        n_state = IDLE;
+                        counter_next = 0;
+                        trigger = 1'b0;
+                        done = 1'b1;
+                    end
+                end
+            end
         endcase
     end
 
-
-
 endmodule
 
-module tick_gen_1Mhz (
-    input clk,
-    input reset,
-    input i_runstop,
-    input i_clear,
-    output reg o_tick
+
+
+
+// 교수님 모듈
+// tick_gen을 run_stop으로 제어하는 방법 배움
+module tick_us (
+    input  clk,
+    input  reset,
+    input  run_stop,
+    input  clear,
+    output o_tick_us
 );
 
     parameter F_COUNT = 100;
-    reg [$clog2(F_COUNT)-1:0] counter_reg;
+
+    reg [$clog2(F_COUNT) -1:0] counter_reg;
+    reg tick_us_reg;
 
     always @(posedge clk, posedge reset) begin
-        if (reset) begin
+        if (reset | clear) begin
             counter_reg <= 0;
-            o_tick <= 0;
-        end else begin
-            if (counter_reg >= F_COUNT - 1) begin
-                counter_reg <= 0;
-                o_tick <= 1;
-            end else begin
+        end
+        else begin
+            if (run_stop) begin
                 counter_reg <= counter_reg + 1;
-                o_tick <= 0;
-            end
-        end
-    end
-endmodule
-
-
-module tick_us_example (
-    input clk,
-    input reset,
-    input run_stop,
-    input clear,
-    output reg o_tick_us
-);
-
-    parameter F_COUNT = 100;
-
-    reg [$clog2(F_COUNT)-1:0] counter_reg;
-
-    always @(posedge clk, posedge reset) begin
-        if (reset) begin
-            counter_reg <= 0;
-        end else begin
-            counter_reg <= counter_reg + 1;
-            if (counter_reg >= F_COUNT - 1) begin
-                counter_reg <= 0;
-                o_tick_us   <= 1;
-            end else begin
-                o_tick_us <= 0;
+                if (counter_reg == F_COUNT - 1) begin
+                    counter_reg <= 0;
+                    tick_us_reg <= 1;
+                end
+                else begin
+                    tick_us_reg <= 0;
+                end
             end
         end
     end
 
+    assign o_tick_us = tick_us_reg;
+
+
 
 endmodule
+
+
+
+
+
+
+// *********************************** My module *******************************************
+
+
+// ************************************* sr04_ctrl *****************************************
+// // 내가 설계한 모듈
+// module sr04_ctrl (
+//     input        clk,
+//     input        reset,
+//     input        start,
+//     input        echo,
+//     output       trigger,
+//     output       done,
+//     output [8:0] distance  // 400cm 표현 -> 9비트 필요
+// );
+
+//     wire w_start;
+//     wire i_tick;
+
+//     tick_us U_TICK_US (
+//         .clk      (clk),
+//         .reset    (reset),
+//         .run_stop (w_start),
+//         .clear    (),
+//         .o_tick_us(i_tick)
+//     );
+
+//     parameter READY = 3'b000;
+//     parameter START = 3'b001;
+//     parameter WAIT = 3'b010;
+//     parameter RECEIVE = 3'b011;
+//     parameter DONE = 3'b100;
+
+//     reg [2:0] n_state, c_state;
+//     reg trigger_next, trigger_reg;
+//     reg done_next, done_reg;
+//     reg [8:0] distance_next, distance_reg;
+
+//     reg [15:0]
+//         tick_cnt_next,
+//         tick_cnt_reg;  // 60_000을 표현하려면 16비트 필요
+//     reg echo_next, echo_reg;
+
+//     // state (SL)
+//     always @(posedge clk, posedge reset) begin
+//         if (reset) begin
+//             c_state      <= READY;  // ***********************************
+//             trigger_reg  <= 0;
+//             done_reg     <= 0;
+//             distance_reg <= 8'h00;
+//             tick_cnt_reg <= 16'h0000;
+//             // echo_reg     <= 0;
+//         end
+//         else begin
+//             c_state      <= n_state;
+//             trigger_reg  <= trigger_next;
+//             done_reg     <= done_next;
+//             distance_reg <= distance_next;
+//             tick_cnt_reg <= tick_cnt_next;
+//         end
+//     end
+
+//     // Next (CL)
+//     always @(*) begin
+//         n_state = c_state;
+//         trigger_next = trigger_reg;
+//         done_next = done_reg;
+//         distance_next = distance_reg;
+
+//         case (c_state)
+//             READY: begin
+//                 if (start == 1) begin
+//                     n_state = START;
+//                     trigger_next = 1;
+//                 end
+//                 else begin
+//                     n_state = READY;
+//                 end
+//             end
+
+//             START: begin
+//                 if (i_tick) begin
+//                     if (tick_cnt_reg == 10) begin
+//                         n_state = WAIT;
+//                         trigger_next = 0;
+//                         tick_cnt_next = 0;
+//                     end
+//                     else begin
+//                         tick_cnt_next = tick_cnt_reg + 1;
+//                     end
+//                 end
+//                 else begin
+//                     n_state = START;
+//                 end
+//             end
+
+//             WAIT: begin
+//                 if (echo_reg) begin
+//                     n_state = RECEIVE;
+//                 end
+//                 else begin
+//                     n_state = WAIT;
+//                 end
+//             end
+
+//             RECEIVE: begin
+//                 if (!echo) begin
+//                     n_state = DONE;
+//                     distance_next = tick_cnt_reg / 58;
+//                     tick_cnt_next = 0;
+//                     echo_next = 0;
+//                 end
+//                 else begin
+//                     n_state   = RECEIVE;
+//                     done_next = 1;
+//                     if (i_tick) begin
+//                         tick_cnt_next = tick_cnt_reg + 1;
+//                     end
+//                 end
+//             end
+
+//             DONE: begin
+//                 n_state = READY;
+//             end
+
+
+//         endcase
+//     end
+
+//     // Output
+//     assign distance = distance_reg;
+//     assign trigger = trigger_reg;
+//     assign done = done_reg;
+
+// endmodule
+
+
+
+// ************************************* tick_us *****************************************
+// 1MHz tick_gen (period = 1us)
+// module tick_us (
+//     input  clk,
+//     input  reset,
+//     input  run_stop,
+//     input  clear,
+//     output o_tick_us
+// );
+
+//     parameter F_COUNT = 100_000_000 / 1_000_000;
+
+//     reg [$clog2(F_COUNT)-1:0] cnt_reg;
+//     reg                       o_tick_us_reg;
+
+//     always @(posedge clk, posedge reset) begin
+//         if (reset) begin
+//             cnt_reg <= 0;
+//             o_tick_us_reg <= 0;
+//         end
+//         else begin
+//             if (cnt_reg == F_COUNT - 1) begin
+//                 cnt_reg <= 0;
+//                 o_tick_us_reg <= 1;
+//             end
+//             else begin
+//                 cnt_reg <= cnt_reg + 1;
+//                 o_tick_us_reg <= 0;
+//             end
+//         end
+//     end
+
+//     assign o_tick_us = o_tick_us_reg;
+
+
+// endmodule
+
+
