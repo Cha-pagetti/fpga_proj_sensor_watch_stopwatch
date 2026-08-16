@@ -14,7 +14,7 @@ module fifo #(
 );
     wire [WIDTH-1:0] w_write_addr, w_read_addr;
 
-    register_file #(
+    fifo_register_file #(
         .WIDTH(WIDTH)
     ) U_REG_FILE (
         .clk(clk),
@@ -25,7 +25,7 @@ module fifo #(
         .rData(rData)
     );
 
-    control_unit #(
+    fifo_control_unit #(
         .WIDTH(WIDTH)
     ) U_CNTL_UNIT (
         .clk  (clk),
@@ -40,7 +40,7 @@ module fifo #(
 
 endmodule
 
-module register_file #(
+module fifo_register_file #(
     parameter WIDTH = 2
 ) (
     input              clk,
@@ -70,7 +70,7 @@ module register_file #(
 endmodule
 
 
-module control_unit #(
+module fifo_control_unit #(
     parameter WIDTH = 2
 ) (
     input              clk,
@@ -93,13 +93,13 @@ module control_unit #(
     // 순차 출력 + state reg
     always @(posedge clk, posedge reset) begin
         if (reset) begin
-            c_state   <= EMPTY;
+            // c_state   <= EMPTY;
             rptr_reg  <= 0;
             wptr_reg  <= 0;
             empty_reg <= 1;
             full_reg  <= 0;
         end else begin
-            c_state   <= n_state;
+            // c_state   <= n_state;
             rptr_reg  <= rptr_next;
             wptr_reg  <= wptr_next;
             empty_reg <= empty_next;
@@ -109,7 +109,7 @@ module control_unit #(
 
     // next state + output CL
     always @(*) begin
-        n_state = c_state;
+        // n_state = c_state;
         rptr_next = rptr_reg;
         wptr_next = wptr_reg;
         empty_next = empty_reg;

@@ -66,9 +66,9 @@ module ascii_decoder (
         signal_next  = signal_reg;
         case (c_state)
             IDLE: begin
-                command_next = 0;
+                //command_next = 0;
                 done_next = 0;
-                if (!i_fifo_empty) begin
+                if (o_get) begin
                     command_next = {72'd0, i_data};
                     target_next  = 0;
                     signal_next  = 0;
