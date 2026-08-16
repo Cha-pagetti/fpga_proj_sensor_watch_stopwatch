@@ -19,8 +19,8 @@ module ascii_encoder (
 
     reg c_state, n_state;
 
-    wire [239:0] format_buf;
-    reg [239:0] buf_reg, buf_next;
+    wire [8*30-1:0] format_buf;
+    reg [8*30-1:0] buf_reg, buf_next;
 
     assign o_fifo_push = (c_state == SEND) && !i_fifo_full && (buf_reg[239:232] != 8'h00);
     assign o_data = buf_reg[239:232];
@@ -140,12 +140,13 @@ module ascii_formatter (
                     ":",
                     i_data3_10,
                     i_data3_1,
-                    {10{8'h0}}
+                    "\n",
+                    {9{8'h0}}
                 };
             end
             SR04: begin
                 format_buf = {
-                    i_data0_100, i_data0_10, i_data0_1, "cm", {25{8'h0}}
+                    i_data0_100, i_data0_10, i_data0_1, "cm", "\n", {24{8'h0}}
                 };
             end
             DHT11: begin
@@ -162,7 +163,8 @@ module ascii_formatter (
                     i_data3_10,
                     i_data3_1,
                     "%",
-                    {16{8'h0}}
+                    "\n",
+                    {15{8'h0}}
                 };
             end
             default: begin
