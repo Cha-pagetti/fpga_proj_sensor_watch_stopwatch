@@ -81,6 +81,15 @@ module dht11_controller (
 
     wire tick_1us;
 
+    ila_0 U_ILA (
+        .clk(clk),
+        .probe0(i_start),
+        .probe1(dht11_io),
+        .probe2(c_state),
+        .probe3(bit_count_reg),
+        .probe4(data_reg)
+    );
+
     // 주기 1us tick을 만드는 tick gen
     tick_gen_1Mhz U_TICK_1MHZ (
         .clk(clk),
@@ -179,10 +188,6 @@ module dht11_controller (
                     duration_count_next = duration_count_reg + 1;
                     if (duration_count_reg == TIMEOUT) begin
                         n_state = IDLE;
-                        done_next = 1;
-                        valid_next = 0;
-                        ready_next = 1;
-                        duration_count_next = 0;
                     end
                 end
                 if (!dht11_input_sync) begin
@@ -195,10 +200,6 @@ module dht11_controller (
                     duration_count_next = duration_count_reg + 1;
                     if (duration_count_reg == TIMEOUT) begin
                         n_state = IDLE;
-                        done_next = 1;
-                        valid_next = 0;
-                        ready_next = 1;
-                        duration_count_next = 0;
                     end
                 end
                 if (dht11_input_sync) begin
@@ -211,10 +212,6 @@ module dht11_controller (
                     duration_count_next = duration_count_reg + 1;
                     if (duration_count_reg == TIMEOUT) begin
                         n_state = IDLE;
-                        done_next = 1;
-                        valid_next = 0;
-                        ready_next = 1;
-                        duration_count_next = 0;
                     end
                 end
                 if (!dht11_input_sync) begin
@@ -227,10 +224,6 @@ module dht11_controller (
                     duration_count_next = duration_count_reg + 1;
                     if (duration_count_reg == TIMEOUT) begin
                         n_state = IDLE;
-                        done_next = 1;
-                        valid_next = 0;
-                        ready_next = 1;
-                        duration_count_next = 0;
                     end
                 end
                 if (dht11_input_sync) begin
@@ -242,10 +235,6 @@ module dht11_controller (
                     duration_count_next = duration_count_reg + 1;
                     if (duration_count_reg == TIMEOUT) begin
                         n_state = IDLE;
-                        done_next = 1;
-                        valid_next = 0;
-                        ready_next = 1;
-                        duration_count_next = 0;
                     end
 
                     tick_count_next = tick_count_reg + 1;

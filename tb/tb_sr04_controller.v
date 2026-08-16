@@ -14,6 +14,7 @@ module tb_sr04_controller;
     wire [8:0] distance;
 
     integer failures;
+    integer trigger_edges;
     time trigger_rise_time;
 
     sr04_controller #(
@@ -35,7 +36,20 @@ module tb_sr04_controller;
     always #50 clk = ~clk;
 
     always @(posedge trigger)
-        trigger_rise_time = $time;
+        begin
+            trigger_rise_time = $time;
+            trigger_edges = trigger_edges + 1;
+        end
+
+`ifdef DUMP_VCD
+    initial begin
+        $dumpfile("tb_sr04_controller.vcd");
+        $dumpvars(0, clk, reset, i_start, echo, trigger, o_done,
+                  o_ready, o_error, distance, dut.state_reg,
+                  dut.wait_count_reg, dut.echo_count_reg,
+                  dut.rearm_count_reg, dut.cm_count_reg);
+    end
+`endif
 
     always @(negedge trigger) begin
         if (!reset && ($time - trigger_rise_time != 10_000)) begin
@@ -83,15 +97,35 @@ module tb_sr04_controller;
         i_start = 1'b0;
         echo = 1'b0;
         failures = 0;
+        trigger_edges = 0;
 
         repeat (4) @(negedge clk);
         reset = 1'b0;
 
+        // SCN-SR04-01: distance quantization boundaries.
+        valid_echo(57, 0);
+        valid_echo(58, 1);
         valid_echo(600, 10);
         valid_echo(5_820, 100);
         valid_echo(23_150, 399);
 
-        // Missing echo must terminate with an error instead of hanging.
+        // SCN-SR04-02: a repeated start while measuring is ignored.
+        start_measurement();
+        repeat (200) @(negedge clk);
+        echo = 1;
+        #100_000;
+        @(negedge clk); i_start = 1;
+        @(negedge clk); i_start = 0;
+        #480_000;
+        echo = 0;
+        @(posedge o_done); #1;
+        if (distance !== 9'd10) begin
+            $display("FAIL: busy start disturbed measurement");
+            failures = failures + 1;
+        end
+        wait (o_ready);
+
+        // SCN-SR04-03: missing echo must timeout instead of hanging.
         start_measurement();
         @(posedge o_error);
         #1;
@@ -100,6 +134,28 @@ module tb_sr04_controller;
             failures = failures + 1;
         end else begin
             $display("PASS: missing echo timeout");
+        end
+
+        // SCN-SR04-04: an overlong echo reports an error and clears distance.
+        wait (o_ready);
+        start_measurement();
+        repeat (200) @(negedge clk);
+        echo = 1;
+        @(posedge o_error); #1;
+        echo = 0;
+        if (distance !== 0) begin
+            $display("FAIL: overlong echo did not clear distance");
+            failures = failures + 1;
+        end
+
+        // SCN-SR04-05: start during re-arm is ignored.
+        @(negedge clk); i_start = 1;
+        @(negedge clk); i_start = 0;
+        wait (o_ready);
+        repeat (5) @(negedge clk);
+        if (trigger || trigger_edges != 8) begin
+            $display("FAIL: re-arm start was not ignored");
+            failures = failures + 1;
         end
 
         wait (o_ready);

@@ -12,24 +12,24 @@ module fnd_controller_dht11 (
     wire [1:0] w_digit_sel;
     wire clk_reg;
 
-    dht11_fnd_clk_div U_CLK_DIV (
+    clk_div U_CLK_DIV (
         .clk(clk),
         .reset(reset),
         .o_1khz(clk_reg)
     );
 
-    dht11_fnd_counter_4 U_COUNTER_4 (
+    counter_4 U_COUNTER_4 (
         .clk(clk_reg),
         .reset(reset),
         .digit_sel(w_digit_sel)
     );
 
-    dht11_fnd_decoder_2x4 U_DC (
+    decoder_2x4 U_DC (
         .sel(w_digit_sel),
         .an_com(fnd_com)
     );
 
-    dht11_fnd_digit_splitter U_DS (
+    digit_splitter U_DS (
         .seg_data(fnd_in),
         .digit_1(w_digit_1),
         .digit_10(w_digit_10),
@@ -37,7 +37,7 @@ module fnd_controller_dht11 (
         .digit_1000(w_digit_1000)
     );
 
-    dht11_fnd_mux_4x1 U_MUX (
+    mux_4x1 U_MUX (
         .digit_1(w_digit_1),
         .digit_10(w_digit_10),
         .digit_100(w_digit_100),
@@ -46,14 +46,14 @@ module fnd_controller_dht11 (
         .mux_out(bcd)
     );
 
-    dht11_fnd_bcd U_BCD (
+    bcd U_BCD (
         .bcd_in (bcd),
         .bcd_out(fnd_data)
     );
 
 endmodule
 
-module dht11_fnd_clk_div (
+module clk_div (
     input  clk,
     input  reset,
     output o_1khz
@@ -81,7 +81,7 @@ module dht11_fnd_clk_div (
 
 endmodule
 
-module dht11_fnd_counter_4 (
+module counter_4 (
     input clk,
     input reset,
     output [1:0] digit_sel
@@ -108,7 +108,7 @@ module dht11_fnd_counter_4 (
 
 endmodule
 
-module dht11_fnd_digit_splitter (
+module digit_splitter (
     input  [15:0] seg_data,   // 13bit로 변경
     output [ 3:0] digit_1,
     output [ 3:0] digit_10,
@@ -123,7 +123,7 @@ module dht11_fnd_digit_splitter (
 
 endmodule
 
-module dht11_fnd_mux_4x1 (
+module mux_4x1 (
     input  [3:0] digit_1,
     input  [3:0] digit_10,
     input  [3:0] digit_100,
@@ -150,7 +150,7 @@ module dht11_fnd_mux_4x1 (
 
 endmodule
 
-module dht11_fnd_decoder_2x4 (
+module decoder_2x4 (
     input [1:0] sel,
     output reg [3:0] an_com
 );
@@ -168,7 +168,7 @@ module dht11_fnd_decoder_2x4 (
 endmodule
 
 
-module dht11_fnd_bcd (
+module bcd (
     input [3:0] bcd_in,
     output reg [7:0] bcd_out
 );

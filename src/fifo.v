@@ -1,9 +1,7 @@
 `timescale 1ns / 1ps
 
-// Small synchronous FIFO with a combinational front-data output.
-// WIDTH is the address width, so the FIFO depth is 2**WIDTH.
 module fifo #(
-    parameter integer WIDTH = 2
+    parameter WIDTH = 2
 ) (
     input        clk,
     input        reset,
@@ -14,43 +12,146 @@ module fifo #(
     output       full,
     output       empty
 );
-    localparam integer DEPTH = 1 << WIDTH;
+    wire [WIDTH-1:0] w_write_addr, w_read_addr;
 
-    reg [7:0] mem [0:DEPTH-1];
-    reg [WIDTH-1:0] write_ptr_reg;
-    reg [WIDTH-1:0] read_ptr_reg;
-    reg [WIDTH:0] count_reg;
+    register_file #(
+        .WIDTH(WIDTH)
+    ) U_REG_FILE (
+        .clk(clk),
+        .wAddr(w_write_addr),
+        .wData(wData),
+        .we(push & !full),
+        .rAddr(w_read_addr),
+        .rData(rData)
+    );
 
-    wire do_pop;
-    wire do_push;
+    control_unit #(
+        .WIDTH(WIDTH)
+    ) U_CNTL_UNIT (
+        .clk  (clk),
+        .reset(reset),
+        .push (push),
+        .pop  (pop),
+        .wptr (w_write_addr),
+        .rptr (w_read_addr),
+        .full (full),
+        .empty(empty)
+    );
 
-    assign empty = (count_reg == 0);
-    assign full  = (count_reg == DEPTH);
-    assign rData = mem[read_ptr_reg];
+endmodule
 
-    assign do_pop  = pop && !empty;
-    // A pop frees one slot on the same edge, so full FIFOs may push and pop together.
-    assign do_push = push && (!full || do_pop);
+module register_file #(
+    parameter WIDTH = 2
+) (
+    input              clk,
+    input  [WIDTH-1:0] wAddr,
+    input  [      7:0] wData,
+    input              we,
+    input  [WIDTH-1:0] rAddr,
+    output [      7:0] rData
+);
+    parameter DEPTH = 2 ** WIDTH;
 
+    reg [7:0] register_file[0:DEPTH-1];
+
+    always @(posedge clk) begin
+        if (we) begin
+            register_file[wAddr] <= wData;
+        end
+        // else begin
+        //     // SL output
+        //     rData <= register_file[rAddr];
+        // end
+    end
+
+    // CL output
+    assign rData = register_file[rAddr];
+
+endmodule
+
+
+module control_unit #(
+    parameter WIDTH = 2
+) (
+    input              clk,
+    input              reset,
+    input              push,
+    input              pop,
+    output [WIDTH-1:0] wptr,
+    output [WIDTH-1:0] rptr,
+    output             full,
+    output             empty
+);
+    reg [WIDTH-1:0] wptr_reg, wptr_next, rptr_reg, rptr_next;
+    assign wptr = wptr_reg;
+    assign rptr = rptr_reg;
+
+    reg empty_reg, empty_next, full_reg, full_next;
+    assign empty = empty_reg;
+    assign full  = full_reg;
+
+    // 순차 출력 + state reg
     always @(posedge clk, posedge reset) begin
         if (reset) begin
-            write_ptr_reg <= 0;
-            read_ptr_reg  <= 0;
-            count_reg     <= 0;
+            c_state   <= EMPTY;
+            rptr_reg  <= 0;
+            wptr_reg  <= 0;
+            empty_reg <= 1;
+            full_reg  <= 0;
         end else begin
-            if (do_push) begin
-                mem[write_ptr_reg] <= wData;
-                write_ptr_reg      <= write_ptr_reg + 1'b1;
-            end
-
-            if (do_pop)
-                read_ptr_reg <= read_ptr_reg + 1'b1;
-
-            case ({do_push, do_pop})
-                2'b10: count_reg <= count_reg + 1'b1;
-                2'b01: count_reg <= count_reg - 1'b1;
-                default: count_reg <= count_reg;
-            endcase
+            c_state   <= n_state;
+            rptr_reg  <= rptr_next;
+            wptr_reg  <= wptr_next;
+            empty_reg <= empty_next;
+            full_reg  <= full_next;
         end
     end
+
+    // next state + output CL
+    always @(*) begin
+        n_state = c_state;
+        rptr_next = rptr_reg;
+        wptr_next = wptr_reg;
+        empty_next = empty_reg;
+        full_next = full_reg;
+
+        // 상태 없이 입력으로만 조건 만들 수 있음
+        case ({
+            push, pop
+        })
+            2'b00: begin
+                // init
+            end
+            2'b01: begin
+                // pop
+                if (!empty_reg) begin
+                    rptr_next = rptr_reg + 1;
+                    full_next = 1'b0;
+                    if (wptr_reg == rptr_next) empty_next = 1'b1;
+                end
+            end
+            2'b10: begin
+                // push
+                if (!full_reg) begin
+                    wptr_next  = wptr_reg + 1;
+                    empty_next = 1'b0;
+                    if (wptr_next == rptr_reg) full_next = 1'b1;
+                end
+            end
+            2'b11: begin
+                // push pop
+                if (full_reg) begin
+                    rptr_next = rptr_reg + 1;
+                    full_next = 1'b0;
+                end else if (empty_reg) begin
+                    wptr_next = wptr_reg + 1;
+                    empty_next = 1'b0;
+                end else begin
+                    wptr_next = wptr_reg + 1;
+                    rptr_next = rptr_reg + 1;
+                end
+            end
+        endcase
+    end
+
 endmodule

@@ -44,6 +44,19 @@ module tb_control_unit;
 
     always #5 clk = ~clk;
 
+`ifdef DUMP_VCD
+    initial begin
+        $dumpfile("tb_control_unit.vcd");
+        $dumpvars(0, clk, reset, cmd_done, cmd_error, cmd_signals,
+                  cmd_target, mode_select, sr04_ready, sr04_done,
+                  sr04_error, dht11_ready, dht11_done, dht11_valid,
+                  stopwatch_run, stopwatch_clear, stopwatch_mode,
+                  stopwatch_save, stopwatch_load, watch_up, watch_down,
+                  watch_left, watch_right, sr04_start, dht11_start,
+                  response_valid, response_kind, busy, dut.state_reg);
+    end
+`endif
+
     task command;
         input [9:0] signals_in;
         input [3:0] target_in;
@@ -91,15 +104,41 @@ module tb_control_unit;
         repeat (2) @(negedge clk);
         reset = 0;
 
-        // /get_run action
+        // Decoded run action
         command(10'b10_0000_0000, 0, 0);
         if (!stopwatch_run) begin
             $display("FAIL: stopwatch did not run");
             failures = failures + 1;
         end
+        repeat (3) @(negedge clk);
+        if (!response_valid || response_kind != 3'd0) begin
+            $display("FAIL: response did not hold under backpressure");
+            failures = failures + 1;
+        end
         consume_response(3'd0);
 
-        // /get_dist launches SR04 and delays the reply until measurement done.
+        // /get_stop and pulse commands.
+        command(10'b01_0000_0000, 0, 0);
+        if (stopwatch_run) failures = failures + 1;
+        consume_response(3'd0);
+
+        command(10'b00_1000_0000, 0, 0);
+        if (!stopwatch_clear) failures = failures + 1;
+        consume_response(3'd0);
+
+        command(10'b00_0100_0000, 0, 0);
+        if (!stopwatch_mode) failures = failures + 1;
+        consume_response(3'd0);
+
+        command(10'b00_0010_0000, 0, 0);
+        if (!stopwatch_save) failures = failures + 1;
+        consume_response(3'd0);
+        stopwatch_saved = 1;
+        command(10'b00_0001_0000, 0, 0);
+        if (!stopwatch_load) failures = failures + 1;
+        consume_response(3'd0);
+
+        // Decoded distance query launches SR04 and waits for completion.
         command(0, 4'b0010, 0);
         #1;
         if (!sr04_start || response_valid) begin
@@ -111,6 +150,28 @@ module tb_control_unit;
         @(negedge clk);
         sr04_done = 0;
         consume_response(3'd4);
+
+        // SR04 error and not-ready paths return ERR.
+        wait (!response_valid);
+        command(0, 4'b0010, 0);
+        @(negedge clk); sr04_error = 1;
+        @(negedge clk); sr04_error = 0;
+        consume_response(3'd1);
+        sr04_ready = 0;
+        command(0, 4'b0010, 0);
+        consume_response(3'd1);
+        sr04_ready = 1;
+
+        // DHT11 query returns data only for a valid frame.
+        command(0, 4'b0001, 0);
+        if (!dht11_start) failures = failures + 1;
+        @(negedge clk); dht11_valid = 1; dht11_done = 1;
+        @(negedge clk); dht11_done = 0;
+        consume_response(3'd5);
+        command(0, 4'b0001, 0);
+        @(negedge clk); dht11_valid = 0; dht11_done = 1;
+        @(negedge clk); dht11_done = 0;
+        consume_response(3'd1);
 
         // Invalid decoder result returns ERR.
         command(0, 0, 1);
@@ -125,6 +186,16 @@ module tb_control_unit;
             $display("FAIL: watch button routing");
             failures = failures + 1;
         end
+
+        // Sensor-mode board button starts only the selected sensor.
+        mode_select = 2'b10;
+        @(negedge clk); btn_down = 1;
+        @(negedge clk); btn_down = 0;
+        if (!sr04_start || dht11_start) failures = failures + 1;
+        mode_select = 2'b11;
+        @(negedge clk); btn_down = 1;
+        @(negedge clk); btn_down = 0;
+        if (!dht11_start || sr04_start) failures = failures + 1;
 
         if (failures == 0)
             $display("CONTROL UNIT TEST PASS");

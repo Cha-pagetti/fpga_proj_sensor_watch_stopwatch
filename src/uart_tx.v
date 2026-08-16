@@ -287,22 +287,18 @@ module uart_tx_origin (
 endmodule
 
 // 9600bps (900hz) baud tick gen
-module baud_tick_x16 #(
-    parameter integer CLK_FREQ_HZ = 100_000_000,
-    parameter integer BAUD_RATE   = 9_600,
-    parameter integer F_COUNT     = CLK_FREQ_HZ / (BAUD_RATE * 16)
-) (
+module baud_tick_x16 (
     input  clk,
     input  reset,
     output o_baud_tick
 );
     // 10416번 clk -> 1 tick
     // 100Mhz / 9600hz
-    localparam integer COUNT_WIDTH = (F_COUNT <= 1) ? 1 : $clog2(F_COUNT);
-    reg  [COUNT_WIDTH-1:0] counter_reg;
+    parameter F_COUNT = 100_000_000 / (9600 * 16);  // 주기가 16배 빨라짐
+    reg  [$clog2(F_COUNT)-1:0] counter_reg;
 
     // CL로 할 수 있는 로직은 CL로 빼버린 방식
-    wire [COUNT_WIDTH-1:0] counter_next;  // always면 reg여야 함
+    wire [$clog2(F_COUNT)-1:0] counter_next;  // always면 reg여야 함
 
     // counter_reg SL
     always @(posedge clk, posedge reset) begin
@@ -314,7 +310,7 @@ module baud_tick_x16 #(
     end
 
     // counter next CL
-    assign counter_next = (F_COUNT <= 1 || counter_reg == F_COUNT - 1) ? 0 : counter_reg + 1'b1;
+    assign counter_next = (counter_reg == F_COUNT - 1) ? 0 : counter_reg + 1;
 
     // always @(*) begin
     //     counter_next = counter_reg + 1;
@@ -322,7 +318,7 @@ module baud_tick_x16 #(
     // end
 
     // output CL
-    assign o_baud_tick  = (F_COUNT <= 1 || counter_reg == F_COUNT - 1) ? 1'b1 : 1'b0;
+    assign o_baud_tick  = (counter_reg == F_COUNT - 1) ? 1 : 0;
 
 endmodule
 
@@ -388,3 +384,4 @@ module baud_tick_origin (
     end
 
 endmodule
+

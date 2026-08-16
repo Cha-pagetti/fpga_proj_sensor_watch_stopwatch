@@ -23,21 +23,8 @@ module uart_rx (
 
     reg rx_done_reg, rx_done_next;
 
-    reg rx_meta_reg, rx_sync_reg;
-
     assign rx_data = data_reg;
     assign rx_done = rx_done_reg;
-
-    // RX is asynchronous to clk. Only the synchronized value is used by the FSM.
-    always @(posedge clk, posedge reset) begin
-        if (reset) begin
-            rx_meta_reg <= 1'b1;
-            rx_sync_reg <= 1'b1;
-        end else begin
-            rx_meta_reg <= rx;
-            rx_sync_reg <= rx_meta_reg;
-        end
-    end
 
     // state reg
     always @(posedge clk, posedge reset) begin
@@ -69,7 +56,7 @@ module uart_rx (
                 rx_done_next   = 0;
                 bit_count_next = 0;
                 if (i_baud_tick) begin
-                    if (!rx_sync_reg) begin
+                    if (!rx) begin
                         if (tick_count >= 7) begin
                             // tick 왔을때 rx 0이고 tick count 7이면
                             // 다음 state -> START로!
@@ -112,7 +99,7 @@ module uart_rx (
 
                         // sipo, bit shift 방식
                         // MSB 자리로 계속 넣어서 LSB 방향으로 밀어낸다
-                        data_next = {rx_sync_reg, data_reg[7:1]};
+                        data_next = {rx, data_reg[7:1]};
                     end
 
                     if (tick_count >= 15) begin
@@ -137,14 +124,20 @@ module uart_rx (
             end
             STOP: begin
                 if (i_baud_tick) begin
-                    // Validate the stop bit near its center instead of leaving
-                    // STOP after a single oversampling tick.
-                    if (tick_count >= 7) begin
+                    if (tick_count >= 0) begin
+                        //tick 왔고 8번 셌음
+                        //그럼 다음 state -> IDLE
                         tick_count_next = 4'h0;
                         bit_count_next = 3'b000;
+                        //data_next = 8'h00;
                         state_next = IDLE;
-                        rx_done_next = rx_sync_reg;
-                    end else begin
+
+                        // 다 끝났으니까 rx_done 띄우기
+                        rx_done_next = 1'b1;
+                    end
+                    else begin
+                        // tick 왔고 아직 8번 안 셌음
+                        // 그럼 tick 한 번 더 세기
                         tick_count_next = tick_count + 1;
                     end
                 end

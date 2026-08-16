@@ -5,8 +5,7 @@
 // sw[2] selects the alternate display page.
 module top #(
     parameter integer CLK_FREQ_HZ = 100_000_000,
-    parameter integer BAUD_RATE   = 9_600,
-    parameter integer TIME_TICK_COUNT = CLK_FREQ_HZ / 100
+    parameter integer BAUD_RATE   = 9_600
 ) (
     input        clk,
     input        reset,
@@ -36,10 +35,6 @@ module top #(
     wire uart_rx_empty;
     wire uart_rx_pop;
     wire uart_rx_overflow;
-    wire [7:0] uart_tx_data;
-    wire uart_tx_push;
-    wire uart_tx_full;
-
     wire cmd_op;
     wire [9:0] cmd_signals;
     wire [3:0] cmd_target;
@@ -74,7 +69,6 @@ module top #(
     wire response_valid;
     wire [2:0] response_kind;
     wire response_ready;
-    wire encoder_busy;
     wire control_busy;
 
     wire [6:0] sw_msec;
@@ -91,7 +85,12 @@ module top #(
     reg [13:0] display_value;
     reg [3:0] decimal_mask;
 
-    assign response_ready = !encoder_busy;
+    // The response handshake is kept at the project boundary, but TX formatting
+    // belongs to the teammate-owned ASCII encoder. Until that module lands,
+    // responses are acknowledged internally and the UART TX pin stays idle.
+    assign response_ready = 1'b1;
+    assign tx = 1'b1;
+    assign cmd_error = 1'b0;
     assign led[0] = stopwatch_run;
     assign led[1] = sr04_ready;
     assign led[2] = dht11_ready;
@@ -110,7 +109,7 @@ module top #(
         .clk(clk), .reset(reset), .i_btn(btn_DOWN), .o_btn(btn_down)
     );
 
-    uart_fifo_bridge #(
+    integration_uart_rx_bridge #(
         .CLK_FREQ_HZ(CLK_FREQ_HZ),
         .BAUD_RATE(BAUD_RATE),
         .FIFO_WIDTH(4)
@@ -118,14 +117,10 @@ module top #(
         .clk(clk),
         .reset(reset),
         .rx(rx),
-        .tx(tx),
         .o_rx_data(uart_rx_data),
         .o_rx_empty(uart_rx_empty),
         .i_rx_pop(uart_rx_pop),
-        .o_rx_overflow(uart_rx_overflow),
-        .i_tx_data(uart_tx_data),
-        .i_tx_push(uart_tx_push),
-        .o_tx_full(uart_tx_full)
+        .o_rx_overflow(uart_rx_overflow)
     );
 
     ascii_decoder U_ASCII_DECODER (
@@ -137,8 +132,7 @@ module top #(
         .o_op(cmd_op),
         .o_signals(cmd_signals),
         .o_target(cmd_target),
-        .o_done(cmd_done),
-        .o_error(cmd_error)
+        .o_done(cmd_done)
     );
 
     system_control_unit U_SYSTEM_CONTROL (
@@ -177,9 +171,7 @@ module top #(
         .o_busy(control_busy)
     );
 
-    stopwatch_datapath #(
-        .TICK_COUNT(TIME_TICK_COUNT)
-    ) U_STOPWATCH (
+    stopwatch_datapath U_STOPWATCH (
         .clk(clk),
         .reset(reset),
         .runstop(stopwatch_run),
@@ -194,9 +186,7 @@ module top #(
         .hour(sw_hour)
     );
 
-    clock #(
-        .TICK_COUNT(TIME_TICK_COUNT)
-    ) U_WATCH (
+    clock U_WATCH (
         .clk(clk),
         .reset(reset),
         .btn_up(watch_up),
@@ -234,28 +224,6 @@ module top #(
         .temperature(temperature),
         .humidity(humidity),
         .dht11_io(dht11_io)
-    );
-
-    ascii_encoder U_ASCII_ENCODER (
-        .clk(clk),
-        .reset(reset),
-        .i_start(response_valid),
-        .i_kind(response_kind),
-        .i_sw_msec(sw_msec),
-        .i_sw_sec(sw_sec),
-        .i_sw_min(sw_min),
-        .i_sw_hour(sw_hour),
-        .i_watch_sec(watch_sec),
-        .i_watch_min(watch_min),
-        .i_watch_hour(watch_hour),
-        .i_distance(distance),
-        .i_temperature(temperature),
-        .i_humidity(humidity),
-        .i_tx_full(uart_tx_full),
-        .o_tx_data(uart_tx_data),
-        .o_tx_push(uart_tx_push),
-        .o_busy(encoder_busy),
-        .o_done()
     );
 
     always @(*) begin

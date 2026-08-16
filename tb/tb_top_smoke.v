@@ -12,8 +12,7 @@ module tb_top_smoke;
 
     top #(
         .CLK_FREQ_HZ(10_000_000),
-        .BAUD_RATE(115_200),
-        .TIME_TICK_COUNT(10)
+        .BAUD_RATE(100_000)
     ) dut (
         .clk(clk), .reset(reset), .rx(rx), .tx(tx),
         .btn_L(btn_L), .btn_R(btn_R), .btn_UP(btn_UP), .btn_DOWN(btn_DOWN),
