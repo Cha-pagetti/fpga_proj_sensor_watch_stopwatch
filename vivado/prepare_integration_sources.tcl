@@ -5,6 +5,7 @@ file mkdir $output_dir
 
 proc read_text {path} {
     set handle [open $path r]
+    fconfigure $handle -encoding utf-8 -translation auto
     set data [read $handle]
     close $handle
     return $data
@@ -12,6 +13,7 @@ proc read_text {path} {
 
 proc write_text {path data} {
     set handle [open $path w]
+    fconfigure $handle -encoding utf-8 -translation lf
     puts -nonewline $handle $data
     close $handle
 }

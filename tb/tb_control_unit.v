@@ -44,6 +44,11 @@ module tb_control_unit;
 
     always #5 clk = ~clk;
 
+    initial begin
+        #100_000;
+        $fatal(1, "CONTROL UNIT TEST WATCHDOG TIMEOUT");
+    end
+
 `ifdef DUMP_VCD
     initial begin
         $dumpfile("tb_control_unit.vcd");

@@ -35,6 +35,11 @@ module tb_sr04_controller;
 
     always #50 clk = ~clk;
 
+    initial begin
+        #100_000_000;
+        $fatal(1, "SR04 TEST WATCHDOG TIMEOUT");
+    end
+
     always @(posedge trigger)
         begin
             trigger_rise_time = $time;

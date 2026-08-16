@@ -29,6 +29,11 @@ module tb_top_sr04_uart;
 
     always #(CLK_NS / 2) clk = ~clk;
 
+    initial begin
+        #10_000_000;
+        $fatal(1, "TOP SR04 CONTROL INTEGRATION TEST WATCHDOG TIMEOUT");
+    end
+
 `ifdef DUMP_VCD
     initial begin
         $dumpfile("tb_top_sr04_uart.vcd");
