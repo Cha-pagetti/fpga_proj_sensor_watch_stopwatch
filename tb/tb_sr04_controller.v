@@ -1,13 +1,26 @@
 `timescale 1ns / 1ps
 
-module tb_sr04_controller ();
+module tb_sr04_controller;
+    localparam integer CLK_FREQ_HZ = 10_000_000;
 
-    reg clk, reset, i_start, echo;
-    wire trigger, o_done, o_ready, o_error;
+    reg clk;
+    reg reset;
+    reg i_start;
+    reg echo;
+    wire trigger;
+    wire o_done;
+    wire o_ready;
+    wire o_error;
     wire [8:0] distance;
 
+    integer failures;
+    time trigger_rise_time;
 
-    sr04_controller_origin dut (
+    sr04_controller #(
+        .CLK_FREQ_HZ(CLK_FREQ_HZ),
+        .ECHO_START_TIMEOUT_US(300),
+        .REARM_US(50)
+    ) dut (
         .clk(clk),
         .reset(reset),
         .i_start(i_start),
@@ -19,105 +32,81 @@ module tb_sr04_controller ();
         .distance(distance)
     );
 
-    always #5 clk = ~clk;
+    always #50 clk = ~clk;
 
-    // 1us 단위로 입력
-    task SRO4_TASK(input [$clog2(60_000)-1:0] wait_time,
-                   input [$clog2(23_200):0] high_time);
+    always @(posedge trigger)
+        trigger_rise_time = $time;
+
+    always @(negedge trigger) begin
+        if (!reset && ($time - trigger_rise_time != 10_000)) begin
+            $display("FAIL: trigger width = %0t ns", $time - trigger_rise_time);
+            failures = failures + 1;
+        end
+    end
+
+    task start_measurement;
         begin
+            wait (o_ready);
             @(negedge clk);
-            i_start = 1;
+            i_start = 1'b1;
             @(negedge clk);
-            i_start = 0;
-
+            i_start = 1'b0;
             @(negedge trigger);
-            #(wait_time * 1_000);
-
-            echo = 1;
-            #(high_time * 1_000);
-            @(negedge clk);
-            echo = 0;
         end
     endtask
 
-    integer i;
-    integer wait_time, high_time;
+    task valid_echo;
+        input integer echo_high_us;
+        input integer expected_cm;
+        begin
+            start_measurement();
+            repeat (200) @(negedge clk); // 20 us sensor response delay
+            echo = 1'b1;
+            #(echo_high_us * 1000);
+            echo = 1'b0;
+            @(posedge o_done);
+            #1;
+            if (distance !== expected_cm[8:0]) begin
+                $display("FAIL: echo=%0d us expected=%0d cm actual=%0d cm",
+                         echo_high_us, expected_cm, distance);
+                failures = failures + 1;
+            end else begin
+                $display("PASS: echo=%0d us distance=%0d cm", echo_high_us, distance);
+            end
+            wait (o_ready);
+        end
+    endtask
 
     initial begin
-        clk = 0;
-        reset = 1;
-        i_start = 0;
-        echo = 0;
-        wait_time = 0;
-        high_time = 0;
-        i = 0;
-        #10;
-        reset = 0;
+        clk = 1'b0;
+        reset = 1'b1;
+        i_start = 1'b0;
+        echo = 1'b0;
+        failures = 0;
 
-        // SRO4_TASK(200, 580);
-        // SRO4_TASK(200, 58);
-        // SRO4_TASK(200, 57);
-        // SRO4_TASK(200, 5800);
-        // SRO4_TASK(200, 5799);
+        repeat (4) @(negedge clk);
+        reset = 1'b0;
 
-        for (i = 0; i < 100; i = i + 1) begin
-            wait_time = $urandom % 1_000;
-            high_time = $urandom % 37_000;
-            #10;
+        valid_echo(600, 10);
+        valid_echo(5_820, 100);
+        valid_echo(23_150, 399);
 
-            $display("%t #%d:\twait_time = %d,\thigh_time = %d", $time, i,
-                     wait_time, high_time);
-            if (high_time >= 36_000)
-                $display("%t #%d: invaild echo start", $time, i);
-            SRO4_TASK(wait_time, high_time);
-            @(negedge o_done);
-            $display("%t #%d:\tdetected high_time = %d,\tdistance = %d", $time, i,
-                     distance * 58, distance);
-            #11_000_000;
+        // Missing echo must terminate with an error instead of hanging.
+        start_measurement();
+        @(posedge o_error);
+        #1;
+        if (distance !== 0) begin
+            $display("FAIL: timeout did not clear distance");
+            failures = failures + 1;
+        end else begin
+            $display("PASS: missing echo timeout");
         end
 
-        #10_000;
-        $stop;
+        wait (o_ready);
+        if (failures == 0)
+            $display("SR04 TEST PASS");
+        else
+            $fatal(1, "SR04 TEST FAIL: %0d failure(s)", failures);
+        $finish;
     end
-endmodule
-
-module tb_sr04_example ();
-    reg clk, reset, i_start, echo;
-    wire trigger, o_done;
-    wire [8:0] distance;
-
-    sr04_controller_example dut (
-        .clk(clk),
-        .reset(reset),
-        .i_start(i_start),
-        .echo(echo),
-        .trigger(trigger),
-        .o_done(o_done),
-        .distance(distance)
-    );
-
-    always #5 clk = ~clk;
-
-    initial begin
-        clk = 0;
-        reset = 1;
-        i_start = 0;
-        echo = 0;
-        #10;
-        reset = 1;
-
-
-        @(negedge clk);
-        i_start = 1;
-        #10;
-        i_start = 0;
-
-        @(negedge trigger);
-        #200_000;
-
-        echo = 1;
-        @(negedge clk);
-        echo = 0;
-    end
-
 endmodule

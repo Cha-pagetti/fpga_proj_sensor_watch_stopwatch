@@ -1,174 +1,128 @@
 `timescale 1ns / 1ps
 
+// Line-oriented UART command decoder.
+// CR is ignored and LF terminates a command. Legacy one-byte commands are
+// accepted immediately so both the old demo and Open Port Master can be used.
 module ascii_decoder (
     input        clk,
     input        reset,
     input        i_fifo_empty,
     input  [7:0] i_data,
     output       o_get,
-    output       o_op,
-    output [9:0] o_signals,
-    output [3:0] o_target,
-    output       o_done
+    output reg   o_op,
+    output reg [9:0] o_signals,
+    output reg [3:0] o_target,
+    output reg   o_done,
+    output reg   o_error
 );
+    localparam integer MAX_BYTES = 16;
 
-    localparam [2:0] IDLE = 0;
-    localparam [2:0] COMMAND = 1;
-    localparam [2:0] TARGET = 2;
-    localparam [2:0] DONE = 3;
-    localparam [2:0] ERROR = 4;
+    reg [MAX_BYTES*8-1:0] command_reg;
+    reg [4:0] byte_count_reg;
+    reg overflow_reg;
 
-    reg [2:0] c_state, n_state;
+    assign o_get = !i_fifo_empty;
 
-    reg [79:0] command_reg, command_next;
+    task decode_legacy_byte;
+        input [7:0] data;
+        begin
+            case (data)
+                "r": o_signals[9] <= 1'b1;
+                "s": o_signals[8] <= 1'b1;
+                "c": o_signals[7] <= 1'b1;
+                "m": o_signals[6] <= 1'b1;
+                "0": o_signals[5] <= 1'b1;
+                "1": o_signals[4] <= 1'b1;
+                "U": o_signals[3] <= 1'b1;
+                "D": o_signals[2] <= 1'b1;
+                "L": o_signals[1] <= 1'b1;
+                "R": o_signals[0] <= 1'b1;
+                default: o_error <= 1'b1;
+            endcase
+        end
+    endtask
 
-    reg op_reg, op_next;
-    reg done_reg, done_next;
+    task decode_line;
+        begin
+            o_op <= 1'b0;
+            case (command_reg)
+                "/run", "/get_run":             o_signals[9] <= 1'b1;
+                "/stop", "/get_stop":           o_signals[8] <= 1'b1;
+                "/clear", "/get_clear":         o_signals[7] <= 1'b1;
+                "/mode", "/get_mode":           o_signals[6] <= 1'b1;
+                "/save", "/get_save":           o_signals[5] <= 1'b1;
+                "/load", "/get_load":           o_signals[4] <= 1'b1;
+                "/up", "/get_up":               o_signals[3] <= 1'b1;
+                "/down", "/get_down":           o_signals[2] <= 1'b1;
+                "/left", "/get_left":           o_signals[1] <= 1'b1;
+                "/right", "/get_right":         o_signals[0] <= 1'b1;
 
-    assign o_op = op_reg;
-    assign o_done = done_reg;
-
-    assign o_get= (c_state != DONE)  && !i_fifo_empty;
-
-    // reg [7:0] data_reg, data_next;
-    reg [9:0] signal_next, signal_reg;
-    reg [3:0] target_next, target_reg;
-
-    assign o_signals = signal_reg;
-    assign o_target  = target_reg;
+                "/get sw_time", "/get_sw_time", "/get_stopwatch": begin
+                    o_op        <= 1'b1;
+                    o_target[3] <= 1'b1;
+                end
+                "/get time", "/get_time": begin
+                    o_op        <= 1'b1;
+                    o_target[2] <= 1'b1;
+                end
+                "/get dist", "/get_dist": begin
+                    o_op        <= 1'b1;
+                    o_target[1] <= 1'b1;
+                end
+                "/get temp_hum", "/get_temp_hum": begin
+                    o_op        <= 1'b1;
+                    o_target[0] <= 1'b1;
+                end
+                default: o_error <= 1'b1;
+            endcase
+        end
+    endtask
 
     always @(posedge clk, posedge reset) begin
         if (reset) begin
-            c_state     <= IDLE;
-            command_reg <= 0;
-            op_reg      <= 0;
-            done_reg    <= 0;
-            // data_reg <= 0;
-            signal_reg  <= 0;
-            target_reg  <= 0;
+            command_reg    <= 0;
+            byte_count_reg <= 0;
+            overflow_reg   <= 1'b0;
+            o_op           <= 1'b0;
+            o_signals      <= 0;
+            o_target       <= 0;
+            o_done         <= 1'b0;
+            o_error        <= 1'b0;
         end else begin
-            c_state     <= n_state;
-            command_reg <= command_next;
-            op_reg      <= op_next;
-            done_reg    <= done_next;
-            // data_reg <= data_next;
-            signal_reg  <= signal_next;
-            target_reg  <= target_next;
+            o_done    <= 1'b0;
+            o_error   <= 1'b0;
+            o_op      <= 1'b0;
+            o_signals <= 0;
+            o_target  <= 0;
+
+            if (!i_fifo_empty) begin
+                if (i_data == 8'h0D) begin
+                    // Ignore CR. LF performs the decode.
+                end else if (i_data == 8'h0A) begin
+                    if (byte_count_reg != 0 || overflow_reg) begin
+                        if (overflow_reg)
+                            o_error <= 1'b1;
+                        else
+                            decode_line();
+                        o_done <= 1'b1;
+                    end
+                    command_reg    <= 0;
+                    byte_count_reg <= 0;
+                    overflow_reg   <= 1'b0;
+                end else if (byte_count_reg == 0 &&
+                             (i_data == "r" || i_data == "s" || i_data == "c" ||
+                              i_data == "m" || i_data == "0" || i_data == "1" ||
+                              i_data == "U" || i_data == "D" || i_data == "L" ||
+                              i_data == "R")) begin
+                    decode_legacy_byte(i_data);
+                    o_done <= 1'b1;
+                end else if (byte_count_reg < MAX_BYTES) begin
+                    command_reg    <= {command_reg[MAX_BYTES*8-9:0], i_data};
+                    byte_count_reg <= byte_count_reg + 1'b1;
+                end else begin
+                    overflow_reg <= 1'b1;
+                end
+            end
         end
     end
-
-    always @(*) begin
-        n_state      = c_state;
-        command_next = command_reg;
-        op_next      = op_reg;
-        done_next    = done_reg;
-        target_next  = target_reg;
-        signal_next  = signal_reg;
-        case (c_state)
-            IDLE: begin
-                command_next = 0;
-                done_next = 0;
-                if (!i_fifo_empty) begin
-                    command_next = {72'd0, i_data};
-                    target_next  = 0;
-                    signal_next  = 0;
-                    if (i_data == "/") begin
-                        op_next = 1;
-                        n_state = COMMAND;
-                    end else begin
-                        op_next = 0;
-                        n_state = DONE;
-                    end
-                end
-            end
-            COMMAND: begin
-                if (o_get) begin
-                    if (i_data == " ") begin
-                        if (command_reg == "/get") begin
-                            n_state = TARGET;
-                            command_next = 0;
-                        end else begin
-                            n_state = ERROR;
-                            command_next = 0;
-                        end
-                    end else begin
-                        command_next = {command_reg[71:0], i_data};
-                    end
-                end
-            end
-            TARGET: begin
-                if (o_get) begin
-                    if (i_data == 8'h0A) begin
-                        n_state = DONE;
-                    end else begin
-                        command_next = {command_reg[71:0], i_data};
-                    end
-                end
-            end
-            DONE: begin
-                case (command_reg)
-                    // op == 0, 1 byte 명령
-                    "r": signal_next[9] = 1'b1;
-                    "s": signal_next[8] = 1'b1;
-                    "c": signal_next[7] = 1'b1;
-                    "m": signal_next[6] = 1'b1;
-                    "0": signal_next[5] = 1'b1;
-                    "1": signal_next[4] = 1'b1;
-                    "U": signal_next[3] = 1'b1;
-                    "D": signal_next[2] = 1'b1;
-                    "L": signal_next[1] = 1'b1;
-                    "R": signal_next[0] = 1'b1;
-
-                    // op == 1, 멀티바이트 명령 (get)
-                    "sw_time": target_next[3] = 1'b1;
-                    "time": target_next[2] = 1'b1;
-                    "dist": target_next[1] = 1'b1;
-                    "temp_hum": target_next[0] = 1'b1;
-                endcase
-                command_next = 0;
-                n_state = IDLE;
-                done_next = 1;
-            end
-            ERROR: begin
-                if (o_get) begin
-                    if (i_data == 8'h0A) begin
-                        n_state = IDLE;
-                    end
-                end
-            end
-        endcase
-    end
-endmodule
-
-module ascii_decoder_origin (
-    input [7:0] i_data,
-    output reg [9:0] o_signals
-    // output       run,
-    // output       stop,
-    // output       clear,
-    // output       mode,
-    // output       up,
-    // output       down,
-    // output       left,
-    // output       right
-);
-    //    assign {run, stop, clear, mode, up, down, left, right} = o_signals;
-
-    always @(*) begin
-        // 기본값: 전체 0
-        o_signals = 10'b0000_0000_00;
-        case (i_data)
-            8'h72: o_signals = 10'b1000_0000_00;  // ascii r (run)
-            8'h73: o_signals = 10'b0100_0000_00;  // ascii s (stop)
-            8'h63: o_signals = 10'b0010_0000_00;  // ascii c (clear)
-            8'h6d: o_signals = 10'b0001_0000_00;  // ascii m (mode)
-            8'h55: o_signals = 10'b0000_1000_00;  // ascii U (up)
-            8'h44: o_signals = 10'b0000_0100_00;  // ascii D (down)
-            8'h4c: o_signals = 10'b0000_0010_00;  // ascii L (left)
-            8'h52: o_signals = 10'b0000_0001_00;  // ascii R (right)
-            8'h30: o_signals = 10'b0000_0000_10;  // ascii 0 (save)
-            8'h31: o_signals = 10'b0000_0000_01;  // ascii 1 (load)
-        endcase
-    end
-
 endmodule

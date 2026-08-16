@@ -1,7 +1,9 @@
 `timescale 1ns / 1ps
 
 
-module clock(
+module clock #(
+    parameter integer TICK_COUNT = 1_000_000
+) (
     input clk,
     input reset,
     input btn_up,
@@ -19,7 +21,9 @@ module clock(
     wire w_inc_sec_1, w_inc_sec_10, w_inc_min_1, w_inc_min_10, w_inc_hour_1, w_inc_hour_10;
     wire w_dec_sec_1, w_dec_sec_10, w_dec_min_1, w_dec_min_10, w_dec_hour_1, w_dec_hour_10;
 
-    clock_datapath U_CLOCK_DATAPATH(
+    clock_datapath #(
+        .TICK_COUNT(TICK_COUNT)
+    ) U_CLOCK_DATAPATH(
         .clk(clk),
         .reset(reset),
         .inc_sec_1(w_inc_sec_1),    
@@ -179,7 +183,8 @@ module clock_datapath #(
     parameter MSEC_WIDTH = 7,   // 100를 표현하려면 최소 7비트 필요
     SEC_WIDTH = 6,              // 60을 표현하려면 최소 6비트 필요
     MIN_WIDTH = 6,
-    HOUR_WIDTH = 5
+    HOUR_WIDTH = 5,
+    TICK_COUNT = 1_000_000
 ) (
     input                     clk,
     input                     reset,
@@ -203,7 +208,7 @@ module clock_datapath #(
     wire w_tick_100hz, w_tick_sec, w_tick_min, w_tick_hour;
 
     // Hour
-    time_counter #(
+    clock_time_counter #(
         .BIT_WIDTH(HOUR_WIDTH),
         .TIMES(24),
         .INIT_VALUE(12)
@@ -220,7 +225,7 @@ module clock_datapath #(
     );
 
     // min
-    time_counter #(
+    clock_time_counter #(
         .BIT_WIDTH(MIN_WIDTH),
         .TIMES(60),
         .INIT_VALUE(0)
@@ -237,7 +242,7 @@ module clock_datapath #(
     );
 
     // Sec
-    time_counter #(
+    clock_time_counter #(
         .BIT_WIDTH(SEC_WIDTH),
         .TIMES(60),
         .INIT_VALUE(0)
@@ -254,7 +259,7 @@ module clock_datapath #(
     );
 
     // msec
-    time_counter #(
+    clock_time_counter #(
         .BIT_WIDTH(MSEC_WIDTH),
         .TIMES(100),
         .INIT_VALUE(0)
@@ -270,8 +275,8 @@ module clock_datapath #(
         .o_tick(w_tick_sec)
     );
 
-    tick_gen_100Hz  #(  // 1_000_000 duty ratio 1:나머
-        .F_COUNT(1_000_000)
+    clock_tick_gen_100hz  #(
+        .F_COUNT(TICK_COUNT)
     )U_TICK_GEN_100Hz(
         .clk(clk),
         .reset(reset),
@@ -285,7 +290,7 @@ endmodule
 
 
 // TICK_GEN module
-module tick_gen_100Hz (  // 1_000_000 duty ratio 1:나머지
+module clock_tick_gen_100hz (
     input      clk,
     input      reset,
     output reg o_tick
@@ -315,7 +320,7 @@ endmodule
 
 // ********************************** time_counter (모듈 수정) **********************************
 // time_counter
-module time_counter #(
+module clock_time_counter #(
     parameter BIT_WIDTH = 7,
     TIMES = 100,
     INIT_VALUE = 0
