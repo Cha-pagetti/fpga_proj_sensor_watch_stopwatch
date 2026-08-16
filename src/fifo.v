@@ -82,12 +82,6 @@ module control_unit #(
     output             full,
     output             empty
 );
-    parameter [1:0] IDLE = 0;
-    parameter [1:0] EMPTY = 1;
-    parameter [1:0] FULL = 2;
-
-    reg [1:0] c_state, n_state;
-
     reg [WIDTH-1:0] wptr_reg, wptr_next, rptr_reg, rptr_next;
     assign wptr = wptr_reg;
     assign rptr = rptr_reg;
@@ -158,45 +152,6 @@ module control_unit #(
                 end
             end
         endcase
-
-        // case (c_state)
-        //     IDLE: begin
-        //         empty_next = 0;
-        //         full_next  = 0;
-        //         if (push & pop) begin
-        //             wptr_next = wptr_reg + 1;
-        //             rptr_next = rptr_reg + 1;
-        //         end else if (push) begin
-        //             wptr_next = wptr_reg + 1;
-        //             if (wptr_next == rptr_reg) begin
-        //                 n_state   = FULL;
-        //                 full_next = 1;
-        //             end
-        //         end else if (pop) begin
-        //             rptr_next = rptr_reg + 1;
-        //             if (rptr_next == wptr_reg) begin
-        //                 n_state = EMPTY;
-        //                 empty_next = 1;
-        //             end
-        //         end
-        //     end
-        //     EMPTY: begin
-        //         empty_next = 1;
-        //         if (push) begin
-        //             wptr_next = wptr_reg + 1;
-        //             n_state = IDLE;
-        //             empty_next = 0;
-        //         end
-        //     end
-        //     FULL: begin
-        //         full_next = 1;
-        //         if (pop) begin
-        //             rptr_next = rptr_reg + 1;
-        //             n_state   = IDLE;
-        //             full_next = 0;
-        //         end
-        //     end
-        // endcase
     end
 
 endmodule
