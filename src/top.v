@@ -231,7 +231,7 @@ module top #(
         .i_fifo_full(w_fifo_tx_full),
         .o_fifo_push(w_fifo_tx_push),
         .o_data(w_encoded_data),
-        .o_encoder_free(i_response_ready)
+        .o_encoder_free(response_ready)
     );
 
 
@@ -334,7 +334,7 @@ module top #(
             end
             2'b01: begin
                 if (sw[2]) display_value = watch_hour * 100 + watch_min;
-                else display_value = watch_min * 100 + watch_sec;
+                else display_value = watch_sec * 100 + watch_msec;
             end
             2'b10: display_value = distance;
             2'b11: begin
