@@ -81,15 +81,6 @@ module dht11_controller (
 
     wire tick_1us;
 
-    ila_0 U_ILA (
-        .clk(clk),
-        .probe0(i_start),
-        .probe1(dht11_io),
-        .probe2(c_state),
-        .probe3(bit_count_reg),
-        .probe4(data_reg)
-    );
-
     // 주기 1us tick을 만드는 tick gen
     tick_gen_1Mhz U_TICK_1MHZ (
         .clk(clk),
@@ -275,106 +266,6 @@ module dht11_controller (
             end
         endcase
     end
-endmodule
-
-module dht11 (
-    input         clk,
-    input         reset,
-    input         i_start,
-    output [15:0] humidty,
-    output [15:0] temperature,
-    output        done,
-    output        vaild,
-    inout         dht11_io
-);
-
-    localparam [3:0] IDLE = 0;
-    localparam [3:0] START = 1;
-    localparam [3:0] WAIT = 2;
-    localparam [3:0] SYNC = 3;
-    // localparam [3:0] SYNC_H = 4;
-    localparam [3:0] DATA = 5;
-    // localparam [3:0] DATA_H = 6;
-    localparam [3:0] STOP = 7;
-
-    reg [3:0] c_state, n_state;
-
-    reg io_control;
-    reg dht11_io_reg, dht11_io_next;
-
-    assign dht11_io = (io_control) ? dht11_io_reg : 1'bz;
-
-    reg [$clog2(19_000)-1:0] tick_count_next, tick_count_reg;
-    reg tick_1us;
-
-    always @(posedge clk, posedge reset) begin
-        if (reset) begin
-            c_state <= IDLE;
-            dht11_io_reg <= 1'b1;
-            tick_count_reg <= 0;
-        end else begin
-            c_state <= n_state;
-            dht11_io_reg <= dht11_io_next;
-            tick_count_reg <= tick_count_next;
-        end
-    end
-
-    always @(*) begin
-        n_state = c_state;
-        dht11_io_next = dht11_io_reg;
-        tick_count_next = tick_count_reg;
-        io_control = 1'b1;
-        case (c_state)
-            IDLE: begin
-                dht11_io_next = 1'b1;
-                io_control = 1'b1;
-                if (i_start) begin
-                    n_state = START;
-                end
-            end
-            START: begin
-                dht11_io_next = 1'b0;
-                io_control = 1'b1;
-                // 19ms low 유지
-                if (tick_1us) begin
-                    tick_count_next = tick_count_reg + 1;
-                end
-                if (tick_count_reg == 19_000) begin
-                    n_state = WAIT;
-                    tick_count_next = 0;
-                end
-            end
-            WAIT: begin
-                if (tick_1us) begin
-                    if (tick_count_reg == 3) begin
-                        n_state = SYNC;
-                        tick_count_next = 0;
-                        // io_control = 1'b0;
-                    end else begin
-                        tick_count_next = tick_count_reg + 1;
-                    end
-                end
-            end
-            SYNC: begin
-                io_control = 0;
-                if (tick_count_reg > 3 && !dht11_io) begin
-                    n_state = DATA;
-                end else begin
-                    tick_count_next = tick_count_reg + 1;
-                end
-            end
-            DATA: begin
-                n_state = STOP;
-            end
-            STOP: begin
-                if (tick_count_reg > 5) begin
-                    n_state = IDLE;
-                    io_control = 1'b1;
-                end
-            end
-        endcase
-    end
-
 endmodule
 
 

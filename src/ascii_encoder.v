@@ -4,7 +4,7 @@ module ascii_encoder (
     input clk,
     input reset,
     input i_start,
-    input [1:0] i_source,  // 0: stopwatch / 1: watch / 2: sr04 / 3:dht11
+    input [2:0] i_source,  // 2: stopwatch / 3: watch / 4: sr04 / 5:dht11
     input [8:0] i_data0,  // 0: hour / 1: hour / 2: distance / 3: temperature - int
     input [6:0] i_data1,  // 0: min  / 1: min  / 2: -        / 3: temperature - de
     input [6:0] i_data2,  // 0: sec  / 1: sec  / 2: -        / 3: humidity - int
@@ -27,7 +27,7 @@ module ascii_encoder (
 
 
     ascii_formatter U_FORMATTER (
-        .i_source(i_source),  // 0: stopwatch / 1: watch / 2: sr04 / 3:dht11
+        .i_source(i_source),  // 2: stopwatch / 3: watch / 4: sr04 / 5:dht11
         .i_data0(i_data0),  // 0: hour / 1: hour / 2: distance / 3: temperature - int
         .i_data1(i_data1),  // 0: min  / 1: min  / 2: -        / 3: temperature - de
         .i_data2(i_data2),  // 0: sec  / 1: sec  / 2: -        / 3: humidity - int
@@ -72,17 +72,17 @@ module ascii_encoder (
 endmodule
 
 module ascii_formatter (
-    input [1:0] i_source,  // 0: stopwatch / 1: watch / 2: sr04 / 3:dht11
+    input [2:0] i_source, // 2: stopwatch / 3: watch / 4: sr04 / 5:dht11
     input [8:0] i_data0,  // 0: hour / 1: hour / 2: distance / 3: temperature - int
     input [6:0] i_data1,  // 0: min  / 1: min  / 2: -        / 3: temperature - de
     input [6:0] i_data2,  // 0: sec  / 1: sec  / 2: -        / 3: humidity - int
     input [6:0] i_data3,  // 0: msec / 1: msec / 2: -        / 3: humidity - de
     output reg [8*30-1:0] format_buf
 );
-    localparam [1:0] STOPWATCH = 0;
-    localparam [1:0] WATCH = 1;
-    localparam [1:0] SR04 = 2;
-    localparam [1:0] DHT11 = 3;
+    localparam [2:0] STOPWATCH = 2;
+    localparam [2:0] WATCH = 3;
+    localparam [2:0] SR04 = 4;
+    localparam [2:0] DHT11 = 5;
 
     wire [7:0] i_data0_100, i_data0_10, i_data0_1;
     wire [7:0] i_data1_10, i_data1_1;

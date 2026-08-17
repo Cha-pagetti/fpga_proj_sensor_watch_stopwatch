@@ -1,47 +1,47 @@
 `timescale 1ns / 1ps
 
-// uart tx의 top
-module uart_controller (
-    input        clk,
-    input        reset,
-    input        tx_start,
-    input  [7:0] tx_data,
-    input        rx,
-    output [7:0] rx_data,
-    output       tx_busy,
-    output       tx_done,
-    output       rx_done,
-    output       tx
+// // uart loopback의 top
+// module uart_controller (
+//     input        clk,
+//     input        reset,
+//     input        tx_start,
+//     input  [7:0] tx_data,
+//     input        rx,
+//     output [7:0] rx_data,
+//     output       tx_busy,
+//     output       tx_done,
+//     output       rx_done,
+//     output       tx
 
-);
-    wire w_baud_tick_x16;
+// );
+//     wire w_baud_tick_x16;
 
-    baud_tick_x16 U_BAUD_TICK_x16 (
-        .clk(clk),
-        .reset(reset),
-        .o_baud_tick(w_baud_tick_x16)
-    );
+//     baud_tick_x16 U_BAUD_TICK_x16 (
+//         .clk(clk),
+//         .reset(reset),
+//         .o_baud_tick(w_baud_tick_x16)
+//     );
 
-    uart_tx U_UART_TX (
-        .clk(clk),
-        .reset(reset),
-        .i_baud_tick(w_baud_tick_x16),
-        .tx_start(tx_start),
-        .tx_data(tx_data),
-        .tx(tx),
-        .tx_busy(tx_busy),
-        .tx_done(tx_done)
-    );
+//     uart_tx U_UART_TX (
+//         .clk(clk),
+//         .reset(reset),
+//         .i_baud_tick(w_baud_tick_x16),
+//         .tx_start(tx_start),
+//         .tx_data(tx_data),
+//         .tx(tx),
+//         .tx_busy(tx_busy),
+//         .tx_done(tx_done)
+//     );
 
-    uart_rx U_UART_RX (
-        .clk(clk),
-        .reset(reset),
-        .i_baud_tick(w_baud_tick_x16),
-        .rx(rx),
-        .rx_data(rx_data),
-        .rx_done(rx_done)
-    );
-endmodule
+//     uart_rx U_UART_RX (
+//         .clk(clk),
+//         .reset(reset),
+//         .i_baud_tick(w_baud_tick_x16),
+//         .rx(rx),
+//         .rx_data(rx_data),
+//         .rx_done(rx_done)
+//     );
+// endmodule
 
 module uart_tx (
     input clk,
