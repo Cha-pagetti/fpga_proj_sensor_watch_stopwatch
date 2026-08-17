@@ -1,0 +1,268 @@
+`timescale 1ns / 1ps
+
+// Integrated top: UART/FIFO + stopwatch + watch + SR04 + DHT11.
+// sw[1:0] selects the display: 00 stopwatch, 01 watch, 10 SR04, 11 DHT11.
+// sw[2] selects the alternate display page.
+module top #(
+    parameter integer CLK_FREQ_HZ = 100_000_000,
+    parameter integer BAUD_RATE   = 9_600
+) (
+    input        clk,
+    input        reset,
+    input        rx,
+    output       tx,
+
+    input        btn_L,
+    input        btn_R,
+    input        btn_UP,
+    input        btn_DOWN,
+    input  [2:0] sw,
+
+    input        sr04_echo,
+    output       sr04_trigger,
+    inout        dht11_io,
+
+    output [3:0] fnd_com,
+    output [7:0] fnd_data,
+    output [3:0] led
+);
+    wire btn_left;
+    wire btn_right;
+    wire btn_up;
+    wire btn_down;
+
+    wire [7:0] uart_rx_data;
+    wire uart_rx_empty;
+    wire uart_rx_pop;
+    wire uart_rx_overflow;
+    wire cmd_op;
+    wire [9:0] cmd_signals;
+    wire [3:0] cmd_target;
+    wire cmd_done;
+    wire cmd_error;
+
+    wire stopwatch_run;
+    wire stopwatch_clear;
+    wire stopwatch_mode;
+    wire stopwatch_save;
+    wire stopwatch_load;
+    wire stopwatch_saved;
+
+    wire watch_up;
+    wire watch_down;
+    wire watch_left;
+    wire watch_right;
+
+    wire sr04_start;
+    wire sr04_done;
+    wire sr04_ready;
+    wire sr04_error;
+    wire [8:0] distance;
+
+    wire dht11_start;
+    wire dht11_done;
+    wire dht11_valid;
+    wire dht11_ready;
+    wire [15:0] temperature;
+    wire [15:0] humidity;
+
+    wire response_valid;
+    wire [2:0] response_kind;
+    wire response_ready;
+    wire control_busy;
+
+    wire [6:0] sw_msec;
+    wire [5:0] sw_sec;
+    wire [5:0] sw_min;
+    wire [4:0] sw_hour;
+
+    wire [6:0] watch_msec;
+    wire [5:0] watch_sec;
+    wire [5:0] watch_min;
+    wire [4:0] watch_hour;
+    wire [2:0] watch_position;
+
+    reg [13:0] display_value;
+    reg [3:0] decimal_mask;
+
+    // The response handshake is kept at the project boundary, but TX formatting
+    // belongs to the teammate-owned ASCII encoder. Until that module lands,
+    // responses are acknowledged internally and the UART TX pin stays idle.
+    assign response_ready = 1'b1;
+    assign tx = 1'b1;
+    assign cmd_error = 1'b0;
+    assign led[0] = stopwatch_run;
+    assign led[1] = sr04_ready;
+    assign led[2] = dht11_ready;
+    assign led[3] = control_busy | uart_rx_overflow;
+
+    btn_debouncer U_BTN_LEFT (
+        .clk(clk), .reset(reset), .i_btn(btn_L), .o_btn(btn_left)
+    );
+    btn_debouncer U_BTN_RIGHT (
+        .clk(clk), .reset(reset), .i_btn(btn_R), .o_btn(btn_right)
+    );
+    btn_debouncer U_BTN_UP (
+        .clk(clk), .reset(reset), .i_btn(btn_UP), .o_btn(btn_up)
+    );
+    btn_debouncer U_BTN_DOWN (
+        .clk(clk), .reset(reset), .i_btn(btn_DOWN), .o_btn(btn_down)
+    );
+
+    integration_uart_rx_bridge #(
+        .CLK_FREQ_HZ(CLK_FREQ_HZ),
+        .BAUD_RATE(BAUD_RATE),
+        .FIFO_WIDTH(4)
+    ) U_UART_FIFO (
+        .clk(clk),
+        .reset(reset),
+        .rx(rx),
+        .o_rx_data(uart_rx_data),
+        .o_rx_empty(uart_rx_empty),
+        .i_rx_pop(uart_rx_pop),
+        .o_rx_overflow(uart_rx_overflow)
+    );
+
+    ascii_decoder U_ASCII_DECODER (
+        .clk(clk),
+        .reset(reset),
+        .i_fifo_empty(uart_rx_empty),
+        .i_data(uart_rx_data),
+        .o_get(uart_rx_pop),
+        .o_op(cmd_op),
+        .o_signals(cmd_signals),
+        .o_target(cmd_target),
+        .o_done(cmd_done)
+    );
+
+    system_control_unit U_SYSTEM_CONTROL (
+        .clk(clk),
+        .reset(reset),
+        .i_cmd_done(cmd_done),
+        .i_cmd_error(cmd_error),
+        .i_cmd_signals(cmd_signals),
+        .i_cmd_target(cmd_target),
+        .i_mode_select(sw[1:0]),
+        .i_btn_left(btn_left),
+        .i_btn_right(btn_right),
+        .i_btn_up(btn_up),
+        .i_btn_down(btn_down),
+        .i_stopwatch_saved(stopwatch_saved),
+        .i_sr04_ready(sr04_ready),
+        .i_sr04_done(sr04_done),
+        .i_sr04_error(sr04_error),
+        .i_dht11_ready(dht11_ready),
+        .i_dht11_done(dht11_done),
+        .i_dht11_valid(dht11_valid),
+        .i_response_ready(response_ready),
+        .o_stopwatch_run(stopwatch_run),
+        .o_stopwatch_clear(stopwatch_clear),
+        .o_stopwatch_mode(stopwatch_mode),
+        .o_stopwatch_save(stopwatch_save),
+        .o_stopwatch_load(stopwatch_load),
+        .o_watch_up(watch_up),
+        .o_watch_down(watch_down),
+        .o_watch_left(watch_left),
+        .o_watch_right(watch_right),
+        .o_sr04_start(sr04_start),
+        .o_dht11_start(dht11_start),
+        .o_response_valid(response_valid),
+        .o_response_kind(response_kind),
+        .o_busy(control_busy)
+    );
+
+    stopwatch_datapath U_STOPWATCH (
+        .clk(clk),
+        .reset(reset),
+        .runstop(stopwatch_run),
+        .clear(stopwatch_clear),
+        .mode(stopwatch_mode),
+        .save(stopwatch_save),
+        .load(stopwatch_load),
+        .o_is_data_saved(stopwatch_saved),
+        .m_sec(sw_msec),
+        .sec(sw_sec),
+        .min(sw_min),
+        .hour(sw_hour)
+    );
+
+    clock U_WATCH (
+        .clk(clk),
+        .reset(reset),
+        .btn_up(watch_up),
+        .btn_down(watch_down),
+        .btn_right(watch_right),
+        .btn_left(watch_left),
+        .msec(watch_msec),
+        .sec(watch_sec),
+        .min(watch_min),
+        .hour(watch_hour),
+        .dot_op(watch_position)
+    );
+
+    sr04_controller #(
+        .CLK_FREQ_HZ(CLK_FREQ_HZ)
+    ) U_SR04 (
+        .clk(clk),
+        .reset(reset),
+        .i_start(sr04_start),
+        .echo(sr04_echo),
+        .trigger(sr04_trigger),
+        .o_done(sr04_done),
+        .o_ready(sr04_ready),
+        .o_error(sr04_error),
+        .distance(distance)
+    );
+
+    dht11_controller U_DHT11 (
+        .clk(clk),
+        .reset(reset),
+        .i_start(dht11_start),
+        .o_done(dht11_done),
+        .o_valid(dht11_valid),
+        .o_ready(dht11_ready),
+        .temperature(temperature),
+        .humidity(humidity),
+        .dht11_io(dht11_io)
+    );
+
+    always @(*) begin
+        display_value = 0;
+        decimal_mask  = 0;
+        case (sw[1:0])
+            2'b00: begin
+                if (sw[2])
+                    display_value = sw_hour * 100 + sw_min;
+                else begin
+                    display_value = sw_sec * 100 + sw_msec;
+                    decimal_mask[2] = 1'b1;
+                end
+            end
+            2'b01: begin
+                if (sw[2])
+                    display_value = watch_hour * 100 + watch_min;
+                else
+                    display_value = watch_min * 100 + watch_sec;
+            end
+            2'b10: display_value = distance;
+            2'b11: begin
+                decimal_mask[2] = 1'b1;
+                if (sw[2])
+                    display_value = humidity[15:8] * 100 + humidity[7:0];
+                else
+                    display_value = temperature[15:8] * 100 + temperature[7:0];
+            end
+        endcase
+    end
+
+    project_fnd_controller #(
+        .CLK_FREQ_HZ(CLK_FREQ_HZ)
+    ) U_PROJECT_FND (
+        .clk(clk),
+        .reset(reset),
+        .i_value(display_value),
+        .i_decimal_mask(decimal_mask),
+        .fnd_com(fnd_com),
+        .fnd_data(fnd_data)
+    );
+endmodule

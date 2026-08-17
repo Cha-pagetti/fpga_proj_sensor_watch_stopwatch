@@ -14,17 +14,6 @@ module top_sr04 (
     wire w_start;
     wire [8:0] w_distance;
 
-    reg echo_sync, echo_reg;
-    always @(posedge clk, posedge reset) begin
-        if (reset) begin
-            echo_sync <= 0;
-            echo_reg <= 0;
-        end else begin
-            echo_reg <= echo;
-            echo_sync <= echo_reg;
-        end
-    end
-
     btn_debouncer U_BD (
         .clk  (clk),
         .reset(reset),
@@ -32,11 +21,11 @@ module top_sr04 (
         .o_btn(w_start)
     );
 
-    sr04_controller_origin U_SR04_CNTL (
+    sr04_controller U_SR04_CNTL (
         .clk(clk),
         .reset(reset),
         .i_start(w_start),
-        .echo(echo_sync),
+        .echo(echo),
         .trigger(trigger),
         .o_done(),
         .o_ready(led[0]),
