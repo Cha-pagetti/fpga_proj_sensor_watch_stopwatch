@@ -241,8 +241,10 @@ module top #(
             2'b01: begin
                 if (sw[2])
                     display_value = watch_hour * 100 + watch_min;
-                else
-                    display_value = watch_min * 100 + watch_sec;
+                else begin
+                    display_value = watch_sec * 100 + watch_msec;
+                    decimal_mask[2] = 1'b1;
+                end
             end
             2'b10: display_value = distance;
             2'b11: begin
