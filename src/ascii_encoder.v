@@ -11,7 +11,8 @@ module ascii_encoder (
     input [6:0] i_data3,  // 0: msec / 1: msec / 2: -        / 3: humidity - de
     input i_fifo_full,
     output o_fifo_push,
-    output [7:0] o_data
+    output [7:0] o_data,
+    output o_encoder_free
 );
 
     localparam IDLE = 0;
@@ -24,6 +25,7 @@ module ascii_encoder (
 
     assign o_fifo_push = (c_state == SEND) && !i_fifo_full && (buf_reg[239:232] != 8'h00);
     assign o_data = buf_reg[239:232];
+    assign o_encoder_free = (c_state == IDLE);
 
 
     ascii_formatter U_FORMATTER (

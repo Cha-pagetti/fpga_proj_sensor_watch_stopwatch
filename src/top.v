@@ -66,6 +66,7 @@ module top #(
     wire [15:0] temperature;
     wire [15:0] humidity;
 
+    wire w_baud_tick_x16;
     wire response_valid;
     wire [2:0] response_kind;
     wire response_ready;
@@ -85,11 +86,6 @@ module top #(
     reg [13:0] display_value;
     reg [3:0] decimal_mask;
 
-    // The response handshake is kept at the project boundary, but TX formatting
-    // belongs to the teammate-owned ASCII encoder. Until that module lands,
-    // responses are acknowledged internally and the UART TX pin stays idle.
-    assign response_ready = 1'b1;
-    assign tx = 1'b1;
     assign cmd_error = 1'b0;
     assign led[0] = stopwatch_run;
     assign led[1] = sr04_ready;
@@ -234,7 +230,8 @@ module top #(
         .i_data3(w_data3),  // 0: msec / 1: msec / 2: -        / 3: humidity - de
         .i_fifo_full(w_fifo_tx_full),
         .o_fifo_push(w_fifo_tx_push),
-        .o_data(w_encoded_data)
+        .o_data(w_encoded_data),
+        .o_encoder_free(i_response_ready)
     );
 
 
@@ -249,15 +246,23 @@ module top #(
         .empty(w_fifo_tx_empty)
     );
 
+    baud_tick_x16 #(
+        .F_COUNT(CLK_FREQ_HZ / (BAUD_RATE * 16))
+    ) U_BAUD_TICK_X16 (
+        .clk(clk),
+        .reset(reset),
+        .o_baud_tick(w_baud_tick_x16)
+    );
+
     uart_tx U_UART_TX (
         .clk(clk),
         .reset(reset),
-        .i_baud_tick(),
+        .i_baud_tick(w_baud_tick_x16),
         .tx_start(!w_fifo_tx_empty),
         .tx_data(w_fifo_popped_data),
         .tx(tx),
         .tx_busy(w_uart_tx_busy),
-        .tx_done
+        .tx_done()
     );
 
     stopwatch_datapath U_STOPWATCH (
