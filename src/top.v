@@ -139,6 +139,7 @@ module top #(
         .clk(clk),
         .reset(reset),
         .i_cmd_done(cmd_done),
+        .i_cmd_op(cmd_op),
         .i_cmd_error(cmd_error),
         .i_cmd_signals(cmd_signals),
         .i_cmd_target(cmd_target),
