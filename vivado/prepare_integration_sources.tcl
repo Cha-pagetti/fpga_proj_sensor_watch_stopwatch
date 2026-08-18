@@ -7,7 +7,7 @@ set integration_rtl_files [list \
     [file join $repo_root src uart_rx.v] \
     [file join $repo_root src fifo.v] \
     [file join $repo_root src ascii_decoder.v] \
-    [file join $repo_root src ascii_encoder.v] \
+    [file join $repo_root src integration_ascii_encoder.v] \
     [file join $repo_root src clock.v] \
     [file join $repo_root src stopwatch_datapath.v] \
     [file join $repo_root src dht11_controller.v] \

@@ -220,7 +220,7 @@ module top #(
 
     // tx datapath
     // data -> ascii encoder -> fifo -> uart tx
-    ascii_encoder U_ASCII_ENCODER (
+    integration_ascii_encoder U_ASCII_ENCODER (
         .clk(clk),
         .reset(reset),
         .i_start(response_valid),

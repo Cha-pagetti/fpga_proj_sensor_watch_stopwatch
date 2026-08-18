@@ -1,23 +1,21 @@
-# Create the Vivado project on the first run; reopen it in place on later runs
-# so repeated builds don't discard synthesis/implementation run history.
+# Configure the existing Vivado 2020.2 GUI project in place. This script never
+# creates a second project or replaces the user-created XPR.
 set script_dir [file dirname [file normalize [info script]]]
 set repo_root  [file normalize [file join $script_dir ..]]
 
-set project_name UART_FIFO_Sensor_Watch_Stopwatch
+set project_name 2026_08_16_UART_FIFO_Sensor_Watch_Stopwatch
 set project_dir  [file join $repo_root build vivado $project_name]
 set project_xpr  [file join $project_dir ${project_name}.xpr]
 set expected_part xc7a35tcpg236-1
 
+if {![file isfile $project_xpr]} {
+    error "EXISTING_XPR_NOT_FOUND: $project_xpr"
+}
+
 if {[llength [get_projects -quiet]] > 0} {
     close_project
 }
-
-if {[file isfile $project_xpr]} {
-    open_project $project_xpr
-} else {
-    file mkdir $project_dir
-    create_project $project_name $project_dir -part $expected_part
-}
+open_project $project_xpr
 
 # Vivado warns while opening a project if its default generated-IP directory
 # has not been materialized yet.
@@ -59,6 +57,37 @@ proc add_file_if_missing {fileset_name file_path} {
     add_files -norecurse -fileset $fileset_name $normalized_path
 }
 
+proc path_is_listed {file_path allowed_paths} {
+    set normalized_path [file normalize $file_path]
+    foreach allowed_path $allowed_paths {
+        if {$normalized_path eq [file normalize $allowed_path]} {
+            return 1
+        }
+    }
+    return 0
+}
+
+# Remove stale generated copies and deleted sources from the project filesets.
+# The source files themselves are never deleted.
+foreach existing_file [get_files -quiet -of_objects [get_filesets sources_1]] {
+    set existing_path [get_property NAME $existing_file]
+    if {![path_is_listed $existing_path $integration_rtl_files]} {
+        remove_files $existing_file
+    }
+}
+foreach existing_file [get_files -quiet -of_objects [get_filesets sim_1]] {
+    set existing_path [get_property NAME $existing_file]
+    if {![path_is_listed $existing_path $tb_files]} {
+        remove_files $existing_file
+    }
+}
+foreach existing_file [get_files -quiet -of_objects [get_filesets constrs_1]] {
+    set existing_path [get_property NAME $existing_file]
+    if {![path_is_listed $existing_path [list $constraint_file]]} {
+        remove_files $existing_file
+    }
+}
+
 foreach design_file $integration_rtl_files {
     add_file_if_missing sources_1 $design_file
 }
@@ -74,7 +103,7 @@ set_property xsim.simulate.runtime all [get_filesets sim_1]
 update_compile_order -fileset sources_1
 update_compile_order -fileset sim_1
 
-puts "PROJECT_READY: $project_xpr"
+puts "EXISTING_PROJECT_READY: $project_xpr"
 puts "DESIGN_TOP: [get_property top [get_filesets sources_1]]"
 puts "SIMULATION_TOP: [get_property top [get_filesets sim_1]]"
 puts "BOARD_PART: [get_property BOARD_PART [current_project]]"
