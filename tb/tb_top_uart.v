@@ -30,11 +30,16 @@ module tb_top_uart;
 
     always #(CLK_NS / 2) clk = ~clk;
 
+    initial begin
+        #5_000_000;
+        $fatal(1, "TOP UART RX INTEGRATION TEST WATCHDOG TIMEOUT");
+    end
+
 `ifdef DUMP_VCD
     initial begin
         $dumpfile("tb_top_uart.vcd");
         $dumpvars(0, clk, reset, rx, tx, led, dut.uart_rx_data,
-                  dut.uart_rx_empty, dut.uart_rx_pop, dut.cmd_done,
+                  dut.uart_rx_empty, dut.uart_rx_pop, dut.cmd_done, dut.cmd_op,
                   dut.cmd_signals, dut.stopwatch_run,
                   dut.response_valid, dut.response_kind);
     end

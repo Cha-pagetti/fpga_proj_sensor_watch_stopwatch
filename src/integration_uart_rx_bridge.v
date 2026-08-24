@@ -20,8 +20,29 @@ module integration_uart_rx_bridge #(
     wire [7:0] rx_data;
     wire rx_done;
     wire rx_full;
+    wire rx_is_cr;
+    wire rx_is_lf;
+    wire rx_fifo_push;
+    wire [7:0] rx_fifo_data;
+    reg suppress_lf_after_cr_reg;
 
-    assign o_rx_overflow = rx_done && rx_full;
+    // Serial terminals may terminate a line with LF, CR, or CRLF, while the
+    // teammate decoder accepts LF only. Normalize CR to LF and discard the LF
+    // immediately following a CR so every convention produces one terminator.
+    assign rx_is_cr = (rx_data == 8'h0D);
+    assign rx_is_lf = (rx_data == 8'h0A);
+    assign rx_fifo_push = rx_done &&
+                          !(suppress_lf_after_cr_reg && rx_is_lf);
+    assign rx_fifo_data = rx_is_cr ? 8'h0A : rx_data;
+
+    assign o_rx_overflow = rx_fifo_push && rx_full;
+
+    always @(posedge clk, posedge reset) begin
+        if (reset)
+            suppress_lf_after_cr_reg <= 1'b0;
+        else if (rx_done)
+            suppress_lf_after_cr_reg <= rx_is_cr;
+    end
 
     baud_tick_x16 #(
         .F_COUNT(BAUD_DIV)
@@ -45,8 +66,8 @@ module integration_uart_rx_bridge #(
     ) U_RX_FIFO (
         .clk(clk),
         .reset(reset),
-        .wData(rx_data),
-        .push(rx_done),
+        .wData(rx_fifo_data),
+        .push(rx_fifo_push),
         .pop(i_rx_pop),
         .rData(o_rx_data),
         .full(rx_full),

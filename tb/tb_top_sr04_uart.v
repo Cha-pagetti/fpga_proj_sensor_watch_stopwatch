@@ -29,6 +29,11 @@ module tb_top_sr04_uart;
 
     always #(CLK_NS / 2) clk = ~clk;
 
+    initial begin
+        #10_000_000;
+        $fatal(1, "TOP SR04 CONTROL INTEGRATION TEST WATCHDOG TIMEOUT");
+    end
+
 `ifdef DUMP_VCD
     initial begin
         $dumpfile("tb_top_sr04_uart.vcd");
@@ -51,7 +56,7 @@ module tb_top_sr04_uart;
         end
     endtask
 
-    task uart_send_line;
+    task uart_send_lf_line;
         input [127:0] text;
         input integer length;
         integer byte_index;
@@ -72,6 +77,39 @@ module tb_top_sr04_uart;
         end
     endtask
 
+    task expect_tx_byte;
+        input [7:0] expected;
+        reg [7:0] captured;
+        integer bit_index;
+        begin
+            @(negedge tx);
+            #(BIT_NS + BIT_NS / 2);
+            for (bit_index = 0; bit_index < 8; bit_index = bit_index + 1) begin
+                captured[bit_index] = tx;
+                #(BIT_NS);
+            end
+            if (tx !== 1'b1) begin
+                $display("FAIL: TX stop bit is not HIGH");
+                failures = failures + 1;
+            end
+            if (captured !== expected) begin
+                $display("FAIL: TX byte=%02h expected=%02h", captured, expected);
+                failures = failures + 1;
+            end
+        end
+    endtask
+
+    task expect_distance_response;
+        begin
+            expect_tx_byte("0");
+            expect_tx_byte("1");
+            expect_tx_byte("0");
+            expect_tx_byte("c");
+            expect_tx_byte("m");
+            expect_tx_byte(8'h0A);
+        end
+    endtask
+
     initial begin
         clk = 0; reset = 1; rx = 1;
         btn_L = 0; btn_R = 0; btn_UP = 0; btn_DOWN = 0;
@@ -79,19 +117,21 @@ module tb_top_sr04_uart;
         repeat (8) @(negedge clk);
         reset = 0;
 
-        // Current teammate decoder syntax is "/get dist\n".
+        // Match the ComPortOpen Master setting: LF terminator only.
         fork
-            uart_send_line("/get dist", 9);
+            uart_send_lf_line("/get dist", 9);
             sensor_echo_10cm();
+            expect_distance_response();
+            begin
+                wait (dut.response_valid);
+                #1;
+                if (dut.response_kind !== 3'd4 || dut.distance !== 9'd10) begin
+                    $display("FAIL: response_kind=%0d distance=%0d",
+                             dut.response_kind, dut.distance);
+                    failures = failures + 1;
+                end
+            end
         join
-
-        wait (dut.response_valid);
-        #1;
-        if (dut.response_kind !== 3'd4 || dut.distance !== 9'd10) begin
-            $display("FAIL: response_kind=%0d distance=%0d",
-                     dut.response_kind, dut.distance);
-            failures = failures + 1;
-        end
 
         // Keep the final response kind visible long enough for presentation VCDs.
         #100_000;

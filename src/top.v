@@ -7,20 +7,20 @@ module top #(
     parameter integer CLK_FREQ_HZ = 100_000_000,
     parameter integer BAUD_RATE   = 9_600
 ) (
-    input        clk,
-    input        reset,
-    input        rx,
-    output       tx,
+    input  clk,
+    input  reset,
+    input  rx,
+    output tx,
 
-    input        btn_L,
-    input        btn_R,
-    input        btn_UP,
-    input        btn_DOWN,
-    input  [2:0] sw,
+    input       btn_L,
+    input       btn_R,
+    input       btn_UP,
+    input       btn_DOWN,
+    input [2:0] sw,
 
-    input        sr04_echo,
-    output       sr04_trigger,
-    inout        dht11_io,
+    input  sr04_echo,
+    output sr04_trigger,
+    inout  dht11_io,
 
     output [3:0] fnd_com,
     output [7:0] fnd_data,
@@ -66,6 +66,7 @@ module top #(
     wire [15:0] temperature;
     wire [15:0] humidity;
 
+    wire w_baud_tick_x16;
     wire response_valid;
     wire [2:0] response_kind;
     wire response_ready;
@@ -85,11 +86,6 @@ module top #(
     reg [13:0] display_value;
     reg [3:0] decimal_mask;
 
-    // The response handshake is kept at the project boundary, but TX formatting
-    // belongs to the teammate-owned ASCII encoder. Until that module lands,
-    // responses are acknowledged internally and the UART TX pin stays idle.
-    assign response_ready = 1'b1;
-    assign tx = 1'b1;
     assign cmd_error = 1'b0;
     assign led[0] = stopwatch_run;
     assign led[1] = sr04_ready;
@@ -97,22 +93,34 @@ module top #(
     assign led[3] = control_busy | uart_rx_overflow;
 
     btn_debouncer U_BTN_LEFT (
-        .clk(clk), .reset(reset), .i_btn(btn_L), .o_btn(btn_left)
+        .clk  (clk),
+        .reset(reset),
+        .i_btn(btn_L),
+        .o_btn(btn_left)
     );
     btn_debouncer U_BTN_RIGHT (
-        .clk(clk), .reset(reset), .i_btn(btn_R), .o_btn(btn_right)
+        .clk  (clk),
+        .reset(reset),
+        .i_btn(btn_R),
+        .o_btn(btn_right)
     );
     btn_debouncer U_BTN_UP (
-        .clk(clk), .reset(reset), .i_btn(btn_UP), .o_btn(btn_up)
+        .clk  (clk),
+        .reset(reset),
+        .i_btn(btn_UP),
+        .o_btn(btn_up)
     );
     btn_debouncer U_BTN_DOWN (
-        .clk(clk), .reset(reset), .i_btn(btn_DOWN), .o_btn(btn_down)
+        .clk  (clk),
+        .reset(reset),
+        .i_btn(btn_DOWN),
+        .o_btn(btn_down)
     );
 
     integration_uart_rx_bridge #(
         .CLK_FREQ_HZ(CLK_FREQ_HZ),
-        .BAUD_RATE(BAUD_RATE),
-        .FIFO_WIDTH(4)
+        .BAUD_RATE  (BAUD_RATE),
+        .FIFO_WIDTH (4)
     ) U_UART_FIFO (
         .clk(clk),
         .reset(reset),
@@ -139,6 +147,7 @@ module top #(
         .clk(clk),
         .reset(reset),
         .i_cmd_done(cmd_done),
+        .i_cmd_op(cmd_op),
         .i_cmd_error(cmd_error),
         .i_cmd_signals(cmd_signals),
         .i_cmd_target(cmd_target),
@@ -171,6 +180,92 @@ module top #(
         .o_busy(control_busy)
     );
 
+    reg [8:0] w_data0;
+    reg [6:0] w_data1, w_data2, w_data3;
+    // 4x1 mux
+    // ascii encoder에 들어갈 신호를 response kind(데이터 출처) 매칭되게 연결
+    always @(*) begin
+        w_data0 = 0;
+        w_data1 = 0;
+        w_data2 = 0;
+        w_data3 = 0;
+        case (response_kind)
+            2: begin
+                w_data0 = sw_hour;
+                w_data1 = sw_min;
+                w_data2 = sw_sec;
+                w_data3 = sw_msec;
+            end
+            3: begin
+                w_data0 = watch_hour;
+                w_data1 = watch_min;
+                w_data2 = watch_sec;
+                w_data3 = watch_msec;
+            end
+            4: begin
+                w_data0 = distance;
+            end
+            5: begin
+                w_data0 = temperature[15:8];
+                w_data1 = temperature[7:0];
+                w_data2 = humidity[15:8];
+                w_data3 = humidity[7:0];
+            end
+        endcase
+    end
+
+    wire [7:0] w_encoded_data, w_fifo_popped_data;
+    wire w_fifo_tx_full, w_fifo_tx_push, w_fifo_tx_empty;
+    wire w_uart_tx_busy;
+
+    // tx datapath
+    // data -> ascii encoder -> fifo -> uart tx
+    integration_ascii_encoder U_ASCII_ENCODER (
+        .clk(clk),
+        .reset(reset),
+        .i_start(response_valid),
+        .i_source(response_kind),  // 0: stopwatch / 1: watch / 2: sr04 / 3:dht11
+        .i_data0(w_data0),  // 0: hour / 1: hour / 2: distance / 3: temperature - int
+        .i_data1(w_data1),  // 0: min  / 1: min  / 2: -        / 3: temperature - de
+        .i_data2(w_data2),  // 0: sec  / 1: sec  / 2: -        / 3: humidity - int
+        .i_data3(w_data3),  // 0: msec / 1: msec / 2: -        / 3: humidity - de
+        .i_fifo_full(w_fifo_tx_full),
+        .o_fifo_push(w_fifo_tx_push),
+        .o_data(w_encoded_data),
+        .o_encoder_free(response_ready)
+    );
+
+
+    fifo #(4) U_FIFO_TX (
+        .clk  (clk),
+        .reset(reset),
+        .wData(w_encoded_data),
+        .push (w_fifo_tx_push),
+        .pop  (!w_uart_tx_busy),
+        .rData(w_fifo_popped_data),
+        .full (w_fifo_tx_full),
+        .empty(w_fifo_tx_empty)
+    );
+
+    baud_tick_x16 #(
+        .F_COUNT(CLK_FREQ_HZ / (BAUD_RATE * 16))
+    ) U_BAUD_TICK_X16 (
+        .clk(clk),
+        .reset(reset),
+        .o_baud_tick(w_baud_tick_x16)
+    );
+
+    uart_tx U_UART_TX (
+        .clk(clk),
+        .reset(reset),
+        .i_baud_tick(w_baud_tick_x16),
+        .tx_start(!w_fifo_tx_empty),
+        .tx_data(w_fifo_popped_data),
+        .tx(tx),
+        .tx_busy(w_uart_tx_busy),
+        .tx_done()
+    );
+
     stopwatch_datapath U_STOPWATCH (
         .clk(clk),
         .reset(reset),
@@ -186,6 +281,7 @@ module top #(
         .hour(sw_hour)
     );
 
+    // data source modules
     clock U_WATCH (
         .clk(clk),
         .reset(reset),
@@ -231,26 +327,25 @@ module top #(
         decimal_mask  = 0;
         case (sw[1:0])
             2'b00: begin
-                if (sw[2])
-                    display_value = sw_hour * 100 + sw_min;
+                if (sw[2]) display_value = sw_hour * 100 + sw_min;
                 else begin
-                    display_value = sw_sec * 100 + sw_msec;
+                    display_value   = sw_sec * 100 + sw_msec;
                     decimal_mask[2] = 1'b1;
                 end
             end
             2'b01: begin
                 if (sw[2])
                     display_value = watch_hour * 100 + watch_min;
-                else
-                    display_value = watch_min * 100 + watch_sec;
+                else begin
+                    display_value = watch_sec * 100 + watch_msec;
+                    decimal_mask[2] = 1'b1;
+                end
             end
             2'b10: display_value = distance;
             2'b11: begin
                 decimal_mask[2] = 1'b1;
-                if (sw[2])
-                    display_value = humidity[15:8] * 100 + humidity[7:0];
-                else
-                    display_value = temperature[15:8] * 100 + temperature[7:0];
+                if (sw[2]) display_value = humidity[15:8] * 100 + humidity[7:0];
+                else display_value = temperature[15:8] * 100 + temperature[7:0];
             end
         endcase
     end

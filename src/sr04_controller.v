@@ -194,30 +194,3 @@ module sr04_controller #(
         end
     end
 endmodule
-
-// Backward-compatible wrapper used by the earlier project files.
-module sr04_ctrl #(
-    parameter integer CLK_FREQ_HZ = 100_000_000
-) (
-    input        clk,
-    input        reset,
-    input        start,
-    input        echo,
-    output       trigger,
-    output       done,
-    output [8:0] distance
-);
-    sr04_controller #(
-        .CLK_FREQ_HZ(CLK_FREQ_HZ)
-    ) U_SR04_CONTROLLER (
-        .clk(clk),
-        .reset(reset),
-        .i_start(start),
-        .echo(echo),
-        .trigger(trigger),
-        .o_done(done),
-        .o_ready(),
-        .o_error(),
-        .distance(distance)
-    );
-endmodule
